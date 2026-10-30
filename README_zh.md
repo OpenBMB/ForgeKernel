@@ -28,6 +28,7 @@ ForgeKernel 属于 **Forge 家族**，同一家族的项目还有
 
 ## 动态
 
+- 📄 **[2026-10]** JustGoal 论文发布：[arXiv:2610.36434](https://arxiv.org/abs/2610.36434)。
 - 🏆 **[2026-10]** 我们在 NVIDIA [SOL-ExecBench](https://research.nvidia.com/benchmarks/sol-execbench)
   的 FlashInfer-Bench 榜单上取得**第一名**。
 - 🏆 **[2026-10]** 我们在华为 CANN-Bench（Ascend A3）上取得**第一名**。

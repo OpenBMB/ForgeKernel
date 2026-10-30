@@ -30,6 +30,7 @@ ForgeKernel is part of the **Forge family**, together with
 
 ## News
 
+- 📄 **[2026-10]** JustGoal paper release: [arXiv:2610.36434](https://arxiv.org/abs/2610.36434).
 - 🏆 **[2026-10]** We reached **#1** on the FlashInfer-Bench leaderboard of NVIDIA
   [SOL-ExecBench](https://research.nvidia.com/benchmarks/sol-execbench).
 - 🏆 **[2026-10]** We reached **#1** on Huawei CANN-Bench (Ascend A3).
