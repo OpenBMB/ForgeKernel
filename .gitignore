@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+.pytest_cache/
+*.egg-info/
+*.local.toml
+
+# Runs: one directory per run, never repo content.
+.artifacts/
+# Operator trees made by hand (`forge init <op> --kernel-file ...`); a run keeps its own.
+/operators/
+# This machine: GPU, ssh host, credentials. Never committed.
+local.env
+uv.lock
