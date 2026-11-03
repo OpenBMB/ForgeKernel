@@ -25,18 +25,21 @@ teacher 读取公开 PyPTO 参照并蒸馏 milestone
 - PyPTO 相关及相邻回归测试：**139 passed**；
 - `forge new tasks/swiglu-pypto --dry-run` 通过。
 
-尚未完成：
+首次端到端闭环已于 2026-11-03 在新控制机 + SSH `9502` 上完成：
 
-- teacher 首次蒸馏及后续 student 自动迭代。原控制机上的 Claude Code 因 bubblewrap 无法创建 network namespace 而停止；这是**控制面环境问题，不是 PyPTO/NPU 问题**。
-- 因此当前还没有 agent 产生的 KEEP、best confirmation 或最终优化结果，不能声称端到端已经完成。
+- 参照 baseline：20/20，device 几何平均 **0.0666214970 ms**；
+- teacher 首次蒸馏完成，`milestone v1` 校验为 `violations=none`；
+- student 产生真实 commit `a9acbe276483b97cca8ed9cc16e4dae572bef25b`，20/20 正确并 **KEEP**，首轮 device 几何平均 **0.0664000291 ms**；
+- 停止前同期复测确认达到目标，最终 best confirmation 为 **0.0662125262 ms**，同期参照为 **0.0669795575 ms**，median-vs-median 比值 **1.011584×**；
+- run 以 `status=done`、`stop=target`、`loop_rc=0` 结束，`best_confirmation.json`、`report.md` 和 `best/kernel.py` 均已生成并核验。
 
-现有 run（仅在本机 `.artifacts/`，未提交 git）：
+成功 run（仅在本机 `.artifacts/`，未提交 git）：
 
 ```text
-.artifacts/swiglu-pypto_261103-084626-4e7a
+.artifacts/swiglu-pypto_261103-210743-f995
 ```
 
-它已经包含 `ref_baseline.json`，但在 teacher 启动前停止。没有并发 agent 作业需要保留。
+本次 `ratio=0.5` 的目标是验证完整闭环；1.011584× 来自同一 9502 上的单次最终 student/ref 测量，不应解读为已证实的稳定显著提速。旧 run `.artifacts/swiglu-pypto_261103-084626-4e7a` 在 teacher 启动前停止；当前没有并发 agent 作业需要保留。
 
 ## 2. 两台机器的职责
 
@@ -275,3 +278,4 @@ forge run <run-dir>
 - **没有 NCU**：当前运行是有意的 timing-only，不要伪造 Ascend 版 NCU 指标。
 - **根分区曾接近满**：远程环境已把临时文件、cache 和日志导向数据盘，不要改回 `/tmp` 长期写入。
 - **密钥不在 git**：`.env`、`local.env` 需要单独安全迁移。
+- **用户级 Claude 配置可能覆盖 `.env`**：本机 `~/.claude/settings.json` 的旧 `ANTHROPIC_BASE_URL` 曾让 agent 连接 `127.0.0.1` 而失败。成功 run 使用 `local.env` 中的独立 `CLAUDE_CONFIG_DIR=/data/shwstone/Workspace/forgekernel-claude`，没有改动全局网关配置，也没有放宽 sandbox。
