@@ -3,8 +3,8 @@
 # [target], [budget]); write only what changes.
 
 [task]
-language = "cutedsl"                 # cutedsl | cuda
-arch     = "sm100"                   # the target GPU (sm90, sm100, ...)
+language = "cutedsl"                 # cutedsl | cuda | pypto
+arch     = "sm100"                   # sm90/sm100 for NVIDIA; ascend950 for PyPTO
 
 # The reference: the implementation to learn from and to beat. Leave the table out and a
 # /goal session writes one first.

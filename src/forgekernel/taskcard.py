@@ -32,7 +32,7 @@ from forgekernel.paths import repo_root, template_dir
 SUITE = "forgekernel"
 PROBLEM = lbmod.PROBLEM_FILE                     # eval/leaderboard/problem.json
 LB_DIR = lbmod.LEADERBOARD_DIR
-KERNEL_FILE = {"cutedsl": "kernel.py", "cuda": "kernel.cu"}
+KERNEL_FILE = {"cutedsl": "kernel.py", "cuda": "kernel.cu", "pypto": "kernel.py"}
 CUTE_ARCH = {"sm90": "sm_90a", "sm100": "sm_100a", "sm103": "sm_103a", "sm120": "sm_120a"}
 EVAL_FILES = ("leaderboard.py", "timing.py", "precision.py", "closed_ref.py", "ncu_probe.py")
 NCU_PROBE_MODE = "cmd:ncu --csv --metrics gpu__time_active.sum python3 eval/ncu_probe.py"
@@ -246,6 +246,13 @@ def write_board_loop_toml(run, task, op_dir: Path, *, deny: list[str], ncu: bool
         [str(p) for p in lc.get("ref_source_paths", [])] + list(deny)))
     lc.setdefault("ref_source_urls", [])
     lc.setdefault("ref_from_goal", "off")
+    if task.language == "pypto" and task.leaderboard.suite == "cann-bench":
+        # The frozen CANN task carries a public reference in its own tree. The teacher
+        # reads it there; the student never receives that tree in a job.
+        lc["language"] = task.loop_language
+        lc["oracle"] = str(run.operators_dir / ref_tree(task.name) / "src")
+        lc["ref_submit_op"] = ref_tree(task.name)
+        lc["ref_in_job"] = False
     if not ncu:
         lc.update(ncu_available=False, job_env_preflight="warn", timeline_probe="off",
                   stall_pricing=False, orch_census=False)
@@ -280,8 +287,17 @@ def write_submit(tree: Path, task, machine, timeout: int = JOB_TIMEOUT_S) -> Pat
         f'workdir = {json.dumps(machine.remote_workdir)}',
         f'env_file = {json.dumps(machine.remote_env_file)}', f'gpu = "{machine.gpu}"',
         "[env]", 'PYTHONUNBUFFERED = "1"',
-        f'CUTE_DSL_ARCH = "{CUTE_ARCH.get(task.arch, task.arch + "a")}"',
     ]
+    if task.language == "pypto":
+        lines += [
+            'FK_DEVICE_TYPE = "npu"',
+            f'ASCEND_RT_VISIBLE_DEVICES = "{machine.gpu}"',
+            f'FK_ASCEND_PYTHON = {json.dumps(machine.env.get("FK_ASCEND_PYTHON", "python3"))}',
+            f'CANN_BENCH_DIR = {json.dumps(machine.env.get("CANN_BENCH_DIR", ""))}',
+            f'PTO_TILE_LIB_CODE_PATH = {json.dumps(machine.env.get("PTO_TILE_LIB_CODE_PATH", ""))}',
+        ]
+    else:
+        lines.append(f'CUTE_DSL_ARCH = "{CUTE_ARCH.get(task.arch, task.arch + "a")}"')
     p = Path(tree) / "submit.toml"
     p.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return p

@@ -79,9 +79,9 @@ GLOBAL_FILES = ("models.toml", "loop.toml")
 DESCRIPTION_FILE = "description.md"
 SHAPES_FILE = "shapes.json"
 
-LANGUAGES = ("cutedsl", "cuda")
+LANGUAGES = ("cutedsl", "cuda", "pypto")
 # The loop's own language name for each task language (forgekernel.loop.lang_mode).
-LOOP_LANGUAGE = {"cutedsl": "cutedsl", "cuda": "cuda-sol"}
+LOOP_LANGUAGE = {"cutedsl": "cutedsl", "cuda": "cuda-sol", "pypto": "pypto"}
 TIMINGS = ("device", "e2e")
 BACKENDS = ("claude",)
 ROLES = ("teacher", "student")
@@ -252,9 +252,11 @@ def load_task(task_dir: str | Path, *, kb_root: Path | None = None,
     if language not in LANGUAGES:
         problems.append(f"[task] language must be one of {list(LANGUAGES)}, got {language!r}")
     arch = t.get("arch")
-    if not isinstance(arch, str) or not re.match(r"^sm\d+[a-z]?$", arch or ""):
-        problems.append(f"[task] arch must name a GPU architecture such as \"sm90\" or "
-                        f"\"sm100\", got {arch!r}")
+    nvidia_arch = isinstance(arch, str) and re.match(r"^sm\d+[a-z]?$", arch)
+    ascend_arch = language == "pypto" and isinstance(arch, str) and re.match(r"^ascend\d+[a-z]?$", arch)
+    if not (nvidia_arch or ascend_arch):
+        problems.append(f"[task] arch must name an NVIDIA architecture such as \"sm90\", or "
+                        f"an Ascend architecture such as \"ascend950\" for pypto, got {arch!r}")
     elif language in LANGUAGES:
         kb = _kb_dir(kb_root, language, arch)
         if not kb.is_dir():
@@ -295,7 +297,7 @@ def load_task(task_dir: str | Path, *, kb_root: Path | None = None,
                 student=student, budget=budget, notes=tuple(notes), leaderboard=board)
 
 
-BOARD_SUITES = ("flashinfer-bench", "sol-execbench")
+BOARD_SUITES = ("flashinfer-bench", "sol-execbench", "cann-bench")
 
 
 def _read_leaderboard(d: Path, cfg: dict, problems: list[str]) -> Leaderboard | None:

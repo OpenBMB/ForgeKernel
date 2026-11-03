@@ -111,7 +111,12 @@ def _entry_argv(cfg: SubmitConfig, mode: str) -> list[str]:
 
 
 def _job_env(cfg: SubmitConfig) -> dict:
-    return {**cfg.env, "TASK_TIMEOUT": str(cfg.timeout), "CUDA_VISIBLE_DEVICES": cfg.exec_gpu}
+    env = {**cfg.env, "TASK_TIMEOUT": str(cfg.timeout)}
+    if cfg.env.get("FK_DEVICE_TYPE") == "npu":
+        env["ASCEND_RT_VISIBLE_DEVICES"] = cfg.exec_gpu
+    else:
+        env["CUDA_VISIBLE_DEVICES"] = cfg.exec_gpu
+    return env
 
 
 class DirectRunner:

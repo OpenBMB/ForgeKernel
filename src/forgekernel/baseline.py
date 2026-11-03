@@ -51,7 +51,9 @@ BASIS_GRAPH = "cuda_graph"    # replay of a captured graph: the host is out of t
 # comes back as an EMPTY graph), and the same currency the FlashInfer-Bench harness
 # reports. Host-free for every check that exempts the graph basis.
 BASIS_CUPTI = "cupti_kernel_span"
-HOST_FREE_BASES = (BASIS_GRAPH, BASIS_CUPTI)
+# CANN-Bench trace_view reports AI-Core E2E time for PyPTO, with host dispatch excluded.
+BASIS_CANN_TRACE_VIEW = "cann_trace_view"
+HOST_FREE_BASES = (BASIS_GRAPH, BASIS_CUPTI, BASIS_CANN_TRACE_VIEW)
 _ROLE_FILENAMES = {ROLE_LIBRARY: BASELINE_FILENAME, ROLE_ARCHITECTURE: ARCH_BASELINE_FILENAME}
 
 # Bumped when a field changes meaning. A stale archive is refused rather than

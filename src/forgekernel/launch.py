@@ -511,6 +511,8 @@ def calibrate(task, op_dir: Path) -> dict:
 def probe_ncu(task, op_dir: Path) -> bool:
     """Can NCU read the GPU's counters on this machine? One short job, every launch (the
     machine local.env names may have changed since the last one)."""
+    if task.language == "pypto":
+        return False  # CANN-Bench trace_view replaces NCU on Ascend.
     from forgekernel.loop.cli import BackendError, RealBackend
     be = RealBackend(task.name, op_dir, None, "forge-judge", "forge-judge@localhost")
     try:
@@ -567,6 +569,10 @@ def run_loop(run, task, *, resuming: bool, harvest_only: bool) -> int:
         argv += ["--target-ms", repr(task.target.ms)]
     else:
         argv += ["--equivalence-ratio", repr(task.target.ratio)]
+    if task.language == "pypto":
+        # One CANN-Bench evaluation already covers every public case with warmup/repeat;
+        # do not multiply several minutes of PyPTO JIT by the generic default of three.
+        argv += ["--ref-repeat", "1"]
     if resuming:
         argv += ["--allow-preexisting-artifacts", "--allow-dirty-kb"]
     if harvest_only:
