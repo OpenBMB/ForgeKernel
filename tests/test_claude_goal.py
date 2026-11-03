@@ -359,9 +359,11 @@ def test_goal_leg_findings():
     scripts = _ROOT / "scripts"
     assert goal_leg_findings([f"bash {scripts / 'agent-claude.sh'} m high 600"], {}) == []
     assert goal_leg_findings([f"bash {scripts / 'claude-goal.sh'} m m"], {}) == []
+    assert goal_leg_findings([f"bash {scripts / 'agent-codex.sh'} m high 600"], {}) == []
     # a plain claude -p command
     f = goal_leg_findings(["claude -p --model x"], {})
-    assert len(f) == 1 and "claude -p" in f[0]
+    assert len(f) == 1 and "without a checked goal loop" in f[0]
+    assert goal_leg_findings(["codex exec -"], {})
 
 
 def test_a_limit_after_the_deliverable_is_complete_delivers(env):

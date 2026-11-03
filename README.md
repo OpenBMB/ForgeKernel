@@ -72,7 +72,8 @@ Show me the plan it prints.
 
 **Requirements.** The machine you run `forge` on: Linux or macOS, Python ≥ 3.11, git, and the
 [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) CLI (logged in, or an
-`ANTHROPIC_API_KEY`); tmux if a task has no reference. The GPU machine (the same one, or an ssh
+`ANTHROPIC_API_KEY`), or the [Codex CLI backend](docs/design/v1-launch.md#codex-cli-backend). Claude tasks without a
+reference also need tmux; Codex reference generation does not. The GPU machine (the same one, or an ssh
 host): an NVIDIA Hopper (`sm90`) or Blackwell (`sm100`) GPU, `python3` with a CUDA build of
 PyTorch and, for CuTe DSL tasks, `nvidia-cutlass-dsl`; Nsight Compute (`ncu`) is recommended,
 and without it a run proceeds on timings alone.
@@ -263,7 +264,7 @@ tasks/               <op>/: task.toml, description.md, shapes.json, reference/;
                      _template/ (what `forge init` copies), rmsnorm/ (ready to run)
 .artifacts/          runs, gitignored: <op>_<id>/{run.json, ws/, report.md, best/, ...}
 skills/              the agents' tools, one SKILL.md + scripts each, mirrored into
-                     the agent's .claude/skills/ before every turn
+                     .claude/skills/ (Claude) or .agents/skills/ (Codex) before every turn
 meta/                teacher and student prompts (meta/cuda/: CUDA C++)
 hw_kb/               the hardware knowledge base (cutedsl/, cuda/), by GPU architecture
 docs/                design notes, milestone template, leaderboards, KB

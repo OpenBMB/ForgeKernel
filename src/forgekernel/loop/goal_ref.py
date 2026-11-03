@@ -222,7 +222,8 @@ def session_read_only_paths(op_dir: Path) -> list[Path]:
     check command and the condition), which sits inside its own working directory."""
     p = Paths.of(Path(op_dir).resolve())
     return [p.state, p.ledger, p.candidates, p.acceptance, p.reference, p.session,
-            p.turn / "spec.json"]
+            *(p.turn / name for name in ("spec.json", "session.json", "result.json",
+                                         "prompt.md", "codex-records"))]
 
 
 def load_state(op_dir: Path) -> dict | None:
@@ -1165,6 +1166,10 @@ def generate(g: Generation, resume: dict | None = None) -> dict:
                                         deadline=deadline, reply=reply)}
     (paths.turn / "spec.json").write_text(json.dumps(spec, indent=1, ensure_ascii=False) + "\n",
                                           encoding="utf-8")
+    # Create record paths before the sandbox makes them read-only.
+    for name in ("session.json", "result.json", "prompt.md"):
+        (paths.turn / name).touch(exist_ok=True)
+    (paths.turn / "codex-records").mkdir(exist_ok=True)
     backend = g.make_backend(tree_op(g.op), tree)
     svc = Service(op=g.op, op_dir=g.op_dir, cfg=g.cfg, paths=paths, tree=tree,
                   kernel_file=g.kernel_file, bar=bar, deadline=deadline, backend=backend,
@@ -1229,7 +1234,12 @@ def _run_session(g: Generation, state: dict, svc: Service, ws: Path, task: str) 
             return
         prompt = task
         if g.policy is not None:
-            g.policy.install("student", ws)
+            from forgekernel.loop.agent_policy import backend_for_command
+            backend_name = backend_for_command(g.agent_cmd)
+            if backend_name == "claude":
+                g.policy.install("student", ws)
+            else:
+                g.policy.install("student", ws, backend=backend_name)
             prompt = g.policy.notice("student") + task
         remaining = int(deadline - now)
         leg_end = deadline + g.report_s

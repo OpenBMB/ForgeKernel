@@ -65,7 +65,8 @@ ForgeKernel 属于 **Forge 家族**，同一家族的项目还有
 
 **环境要求。** 运行 `forge` 的机器：Linux 或 macOS、Python ≥ 3.11、git，以及
 [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) CLI（已登录，或设置
-`ANTHROPIC_API_KEY`）；任务没有参照时还需要 tmux。GPU 机器（同一台或一台 ssh 主机）：NVIDIA
+`ANTHROPIC_API_KEY`），也可使用 [Codex CLI 后端](docs/design/v1-launch.md#codex-cli-backend)。Claude 无参照任务还需要
+tmux，Codex 的参照生成不需要。GPU 机器（同一台或一台 ssh 主机）：NVIDIA
 Hopper（`sm90`）或 Blackwell（`sm100`）GPU，`python3` 带 CUDA 版 PyTorch，CuTe DSL 任务还需要
 `nvidia-cutlass-dsl`；建议装 Nsight Compute（`ncu`），没有它时运行只按计时推进。
 
@@ -239,7 +240,7 @@ tasks/               <op>/：task.toml、description.md、shapes.json、referenc
                      _template/（`forge init` 复制的模板）、rmsnorm/（可直接运行）
 .artifacts/          运行目录，不进 git：<op>_<id>/{run.json, ws/, report.md, best/, ...}
 skills/              agent 用的工具，每个一份 SKILL.md 加脚本，每轮开始前镜像到
-                     agent 工作目录的 .claude/skills/
+                     .claude/skills/（Claude）或 .agents/skills/（Codex）
 meta/                teacher 与 student 的 prompt（meta/cuda/：CUDA C++）
 hw_kb/               硬件知识库（cutedsl/、cuda/），按 GPU 架构组织
 docs/                设计说明、milestone 模板、榜单、知识库收割

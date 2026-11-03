@@ -83,7 +83,7 @@ LANGUAGES = ("cutedsl", "cuda")
 # The loop's own language name for each task language (forgekernel.loop.lang_mode).
 LOOP_LANGUAGE = {"cutedsl": "cutedsl", "cuda": "cuda-sol"}
 TIMINGS = ("device", "e2e")
-BACKENDS = ("claude",)
+BACKENDS = ("claude", "codex")
 ROLES = ("teacher", "student")
 MIN_INPUT_GROUPS = 3
 
@@ -667,6 +667,9 @@ def _read_agent(agents: dict, role: str, problems: list[str]) -> AgentSpec:
     if not isinstance(model, str) or not model.strip():
         problems.append(f"{where} model must be a model name, got {model!r}")
         model = ""
+    if backend == "codex" and model.startswith("claude-"):
+        problems.append(f"{where} backend codex needs an explicit Codex model; "
+                        "the inherited Claude model cannot be used")
     effort = a.get("effort")
     if effort is not None and (not isinstance(effort, str) or not effort.strip()):
         problems.append(f"{where} effort must be a string, got {effort!r}")
