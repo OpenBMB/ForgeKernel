@@ -130,6 +130,15 @@ def report_to_eval(report: dict, *, config: dict | None = None) -> dict:
     }
 
 
+def evaluator_failure(result: dict, rc: int) -> None:
+    """A partial report is evidence of failure, never a complete gate measurement."""
+    detail = result["correctness"].get("error") or ""
+    result["correctness"].update({"pass": False,
+        "error": (detail + "; " if detail else "")
+                 + f"CANN-Bench evaluator exited {rc}; partial report is not a gate"})
+    result["performance"] = {}
+
+
 def _latest_report(root: Path) -> Path | None:
     candidates = [p for p in root.glob("*_eval_*.json") if p.is_file()
                   and not p.name.startswith("forge_")]
@@ -231,17 +240,18 @@ def _evaluate(workspace: Path, config: dict) -> dict:
     report_path = _latest_report(reports)
     if report_path is None:
         tail = (reports / "evaluator.log").read_text(encoding="utf-8", errors="replace")[-4000:]
+        emit_artifact("cann/evaluator.log", (reports / "evaluator.log").read_bytes()[-1048576:])
         return {"correctness": {"pass": False,
                                 "error": f"CANN-Bench exited {rc} without a JSON report: {tail}"},
-                "performance": {}}
+                "performance": {}, "profiler": {"backend": backend, "status": "unavailable"}}
     raw = report_path.read_bytes()
     report = json.loads(raw)
     result = report_to_eval(report, config=config)
-    artifacts = [emit_artifact("cann/official_report.json", raw)]
+    artifacts = [emit_artifact("cann/official_report.json", raw),
+                 emit_artifact("cann/evaluator.log",
+                               (reports / "evaluator.log").read_bytes()[-1048576:])]
     if rc:
-        result["correctness"].update({"pass": False,
-            "error": f"CANN-Bench evaluator exited {rc}; partial report is not a gate"})
-        result["performance"] = {}
+        evaluator_failure(result, rc)
     if backend == "msprof":
         result["profiler"], prof_artifacts = collect(reports, backend)
         artifacts.extend(prof_artifacts)

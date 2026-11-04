@@ -72,6 +72,18 @@ def test_kernel_details_and_trace_view_are_both_retained_with_explicit_selection
     assert vendor['performance']['device_window_basis'] == 'cann_kernel_details'
 
 
+def test_evaluator_failure_preserves_official_case_error():
+    report = enhanced()
+    report['operators'][0]['cases'][0].update(status='failed', error_msg='precision_mismatch')
+    report['operators'][0]['cases'][0]['accuracy']['passed'] = False
+    adapter = _adapter()
+    result = adapter.report_to_eval(report)
+    adapter.evaluator_failure(result, 4)
+    assert 'precision_mismatch' in result['correctness']['error']
+    assert 'exited 4' in result['correctness']['error']
+    assert not result['performance']
+
+
 def test_failed_official_report_cannot_supply_reference_time():
     report = enhanced()
     report['operators'][0]['cases'][0]['accuracy']['passed'] = False

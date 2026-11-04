@@ -130,6 +130,15 @@ def report_to_eval(report: dict, *, config: dict | None = None) -> dict:
     }
 
 
+def evaluator_failure(result: dict, rc: int) -> None:
+    """A partial report is evidence of failure, never a complete gate measurement."""
+    detail = result["correctness"].get("error") or ""
+    result["correctness"].update({"pass": False,
+        "error": (detail + "; " if detail else "")
+                 + f"CANN-Bench evaluator exited {rc}; partial report is not a gate"})
+    result["performance"] = {}
+
+
 def _latest_report(root: Path) -> Path | None:
     candidates = [p for p in root.glob("*_eval_*.json") if p.is_file()
                   and not p.name.startswith("forge_")]
@@ -242,9 +251,7 @@ def _evaluate(workspace: Path, config: dict) -> dict:
                  emit_artifact("cann/evaluator.log",
                                (reports / "evaluator.log").read_bytes()[-1048576:])]
     if rc:
-        result["correctness"].update({"pass": False,
-            "error": f"CANN-Bench evaluator exited {rc}; partial report is not a gate"})
-        result["performance"] = {}
+        evaluator_failure(result, rc)
     if backend == "msprof":
         result["profiler"], prof_artifacts = collect(reports, backend)
         artifacts.extend(prof_artifacts)
