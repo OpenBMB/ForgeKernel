@@ -14,8 +14,10 @@ noise floor, or one that ended without a confirmed best. The noise floor is the 
 generation's own same-job confirmation ratios, never below NOISE_FLOOR_MIN (the loop's plateau
 margin). ``--max-gen`` caps the number of generations; there is no cap by default.
 
-The reference has source, so every generation after the first runs in source mode: the
-teacher reads the previous best, the student never does (the run seals it).
+CuTe DSL references stay source-readable to the teacher only. CANN-Bench
+references instead remain sealed blackbox packages: the student receives only
+a signature stub, the teacher measures them, and fresh two-sided confirmation
+is required before promotion. No reference source crosses the boundary.
 
 Only the public commands are used; nothing here is special to the harness.
 """

@@ -57,6 +57,19 @@ def test_official_evidence_survives_eval_trajectory_and_baseline(tmp_path):
     assert not any(k.startswith('ref_') for k in result['performance'])
 
 
+def test_kernel_details_and_trace_view_are_both_retained_with_explicit_selection():
+    report = enhanced()
+    report['operators'][0]['cases'][0]['elapsed_us'] = 123
+    report['operators'][0]['cases'][0]['op_times']['device_kernels'] = {'candidate': 123}
+    result = _adapter().report_to_eval(report, config={'timing_basis': 'cann_trace_view'})
+    assert result['performance']['device_window_basis'] == 'cann_trace_view'
+    assert result['performance']['workloads'][0]['device_median_ms'] == .1
+    assert result['cann_bench']['cases'][0]['official_elapsed_us'] == 100
+    assert result['cann_bench']['cases'][0]['op_times']['device_kernels'] == {'candidate': 123}
+    vendor = _adapter().report_to_eval(report, config={'timing_basis': 'cann_kernel_details'})
+    assert vendor['performance']['device_window_basis'] == 'cann_kernel_details'
+
+
 def test_failed_official_report_cannot_supply_reference_time():
     report = enhanced()
     report['operators'][0]['cases'][0]['accuracy']['passed'] = False

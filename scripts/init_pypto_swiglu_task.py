@@ -21,6 +21,7 @@ import yaml
 EXPECTED_CANN_REF = "059cb61d41b279ad021160517bd2a5f6b7a05e01"
 ADAPTER = Path("src/forgekernel/card_template/eval/cann_bench.py")
 GPU_ENTRY = Path("src/forgekernel/card_template/pypto_gpu_entry.sh")
+PROFILER = Path("src/forgekernel/card_template/eval/ascend_profiler.py")
 
 
 def put(root: Path, rel: str, text: str, executable: bool = False) -> None:
@@ -77,8 +78,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--reference-dir", type=Path, required=True,
                         help="CANN-Bench examples/pypto_example")
     parser.add_argument("--model", default="claude-opus-5-5")
-    parser.add_argument("--hours", type=float, default=2.0)
-    parser.add_argument("--target-ratio", type=float, default=0.5)
+    parser.add_argument("--hours", type=float, default=8.0)
+    parser.add_argument("--target-ratio", type=float, default=1.05)
     parser.add_argument("--pypto-source", default="")
     parser.add_argument("--pto-isa", default="/home/shw/Workspace/pto-isa")
     args = parser.parse_args(argv)
@@ -103,6 +104,7 @@ def main(argv: list[str] | None = None) -> int:
     ref = task / "leaderboard" / "ref"
     for tree in (card, ref):
         put(tree, "eval/cann_bench.py", (repo / ADAPTER).read_text(encoding="utf-8"))
+        put(tree, "eval/ascend_profiler.py", (repo / PROFILER).read_text(encoding="utf-8"))
         put(tree, "gpu_entry.sh", (repo / GPU_ENTRY).read_text(encoding="utf-8"), True)
         put(tree, ".gitattributes", (repo / "src/forgekernel/card_template/.gitattributes")
             .read_text(encoding="utf-8"))
@@ -111,7 +113,8 @@ def main(argv: list[str] | None = None) -> int:
             "build/\ndist/\n*.egg-info/\ncann_bench/kernel_impl.py\n"
             "__pycache__/\n*.pyc\n_compile.log\n")
 
-    config = {"operator": "SwiGlu", "task_dir": task_dir, "warmup": 3, "repeat": 5}
+    config = {"operator": "SwiGlu", "task_dir": task_dir, "warmup": 3, "repeat": 5,
+              "profiler_backend": "msprof"}
     put(card, "eval/cann_task.json", json.dumps({**config, "source_dir": "."}, indent=2) + "\n")
     put(ref, "eval/cann_task.json", json.dumps({**config, "source_dir": "src"}, indent=2) + "\n")
 
@@ -191,7 +194,8 @@ ref_from_goal = "off"
 ref_price_op = ""
 precision_contract = "off"
 correctness_monitor = "off"
-confirm_jobs = 1
+confirm_jobs = 3
+profiler_backend = "msprof"
 ncu_available = false
 job_env_preflight = "warn"
 timeline_probe = "off"
@@ -234,7 +238,7 @@ model = {json.dumps(args.model)}
 
 [budget]
 hours = {args.hours}
-max_meta = 1
+max_meta = 3
 """)
     print(task)
     return 0

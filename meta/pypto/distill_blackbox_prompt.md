@@ -6,7 +6,7 @@ The milestone must contain decisions and contracts, never implementation code.
 
 Read the common schema `{META_MILESTONE_PATH}` and
 `{MILESTONES_TEMPLATE_PATH}`. Write `{MILESTONE_PATH}` with their exact §0–§6 and
-Worked Example headings, five-tuples (What/Why/Trigger/Cost/Depends on), explicit
+Worked Example headings, five-tuples (Action/Purpose/Trigger condition/Cost/Depends on), explicit
 `⇐` DAG edges, `⊗` companions, ordered M0→M1+ phases and per-phase Gate blocks.
 Each phase needs a literal mechanism-verification line. No free-play phase.
 

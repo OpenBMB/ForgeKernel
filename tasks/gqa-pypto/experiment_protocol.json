@@ -1,5 +1,5 @@
 {
-  "level": "tasks/level4",
+  "level": "level4",
   "operator": "GQA",
   "cases": "public",
   "judge": "official golden.py",

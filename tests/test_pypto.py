@@ -25,7 +25,9 @@ def _report(passed: int = 2) -> dict:
     for i, elapsed in enumerate((100.0, 400.0), 1):
         cases.append({"case_id": f"level1/swi_glu_{i}", "status": "success",
                       "elapsed_us": elapsed,
-                      "accuracy": {"passed": i <= passed, "error_msg": "bad" if i > passed else ""}})
+                      "accuracy": {"passed": i <= passed, "error_msg": "bad" if i > passed else ""},
+                      "op_times": {"trace_view": {"aicore_e2e": elapsed,
+                                                 "aicore_e2e_jitter": 1.0}}})
     return {"tasks_version": "2.0.0", "operators": [{
         "operator": "SwiGlu", "total_cases": 2, "passed_cases": passed, "cases": cases}]}
 

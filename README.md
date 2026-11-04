@@ -198,8 +198,12 @@ committed and rerun elsewhere. The chain stops only when the hardware gives no m
 whose gain is within the noise floor (the spread of that generation's same-job confirmation ratios,
 at least 1.5%), or at one that ends without a confirmed best kernel. There is no generation cap
 unless you set `--max-gen`. The
-promoted kernel carries its source, so every generation after the first runs in `source` mode: the
-teacher reads the previous best, the student never does. (CuTe DSL tasks only.)
+promoted kernel carries its source. CuTe DSL generations run in `source` mode: the teacher
+reads the previous best and the student never does. PyPTO / CANN-Bench generations instead
+preserve a sealed **blackbox** reference: the teacher profiles it, the student starts from a
+signature-only stub, and no reference body crosses the generation boundary. Promotion requires
+at least three student and three fresh-reference jobs, and the gain must clear the conservative
+two-sided noise floor; otherwise the chain stops.
 
 ## Leaderboard Tasks
 
@@ -265,7 +269,7 @@ tasks/               <op>/: task.toml, description.md, shapes.json, reference/;
 skills/              the agents' tools, one SKILL.md + scripts each, mirrored into
                      the agent's .claude/skills/ before every turn
 meta/                teacher and student prompts (meta/cuda/: CUDA C++)
-hw_kb/               the hardware knowledge base (cutedsl/, cuda/), by GPU architecture
+hw_kb/               the hardware knowledge base (cutedsl/, cuda/, pypto/), by GPU architecture
 docs/                design notes, milestone template, leaderboards, KB
 scripts/             agent launcher, /goal driver, self-evolution
 tests/               pytest suite (CPU only)

@@ -58,6 +58,7 @@ def main(argv=None):
     p.add_argument('--operator', default='GQA')
     p.add_argument('--entry', default='gqa')
     p.add_argument('--arch', default='ascend950')
+    p.add_argument('--expected-cann-ref', default='059cb61d41b279ad021160517bd2a5f6b7a05e01')
     p.add_argument('--forgekernel-root', type=Path, default=repo_root())
     p.add_argument('--reference-mode', default='gqa-library',
                    choices=('gqa-library',))
@@ -76,7 +77,7 @@ def main(argv=None):
     cann = args.cann_bench_dir.resolve()
     commit = subprocess.run(['git', '-C', str(cann), 'rev-parse', 'HEAD'],
                             check=True, capture_output=True, text=True).stdout.strip()
-    if commit != '059cb61d41b279ad021160517bd2a5f6b7a05e01':
+    if commit != args.expected_cann_ref:
         p.error(f'unsupported CANN-Bench commit: {commit}')
     task_dir = f'{args.level}/{args.operator_path}'
     cases = yaml.safe_load((cann / task_dir / 'cases.yaml').read_text())['cases']
@@ -115,6 +116,7 @@ def main(argv=None):
         f'def {args.entry}({signature}) -> torch.Tensor:\n'
         '    raise NotImplementedError("implement PyPTO from the milestone")\n')
     library = (cann / 'scripts/baseline/refs/level4.py').read_text()
+    (ref / 'src').mkdir()
     for name in ('build.sh', 'setup.py', 'cann_bench'):
         p = card / name
         if p.is_dir():
@@ -180,7 +182,7 @@ hours = {args.hours}
 max_meta = {args.max_meta}
 ''')
     put(dest, 'experiment_protocol.json', json.dumps({
-        'level': args.level, 'operator': args.operator, 'cases': 'public', 'judge': 'official golden.py',
+        'level': args.level.rsplit('/', 1)[-1], 'operator': args.operator, 'cases': 'public', 'judge': 'official golden.py',
         'architecture_reference': 'CANN library gqa_ref / npu_fused_infer_attention_score',
         'student': 'PyPTO authored kernel; vendor fused-attention calls forbidden',
         'oracle_mode': args.oracle, 'cann_commit': commit,

@@ -391,6 +391,9 @@ def measure_and_archive(op: str, op_dir: Path, spec: dict, *,
         raise RefMeasurementError(
             "could not find a median latency in the ref output. The bench script should "
             f"print JSON with one of {list(_MS_KEYS)}, or a line like 'median 2.3641 ms'")
+    if measured.get("cann_bench"):
+        measured["cann_bench"] = {**measured["cann_bench"], "job": job,
+                                  "cluster": _submit_cluster(spec.get("submit_op") or op)}
     from forgekernel.inner.ncu import kernels_from_ncu, profiler_from_ncu
     baseline = RefBaseline(
         op=op, ms=measured["ms"], role=role, job=job, shape=spec.get("ref_shape", ""),

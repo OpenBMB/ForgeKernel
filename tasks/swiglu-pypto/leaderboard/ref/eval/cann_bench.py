@@ -84,8 +84,12 @@ def report_to_eval(report: dict, *, config: dict | None = None) -> dict:
                 if basis == BASIS and trace.get("aicore_e2e") is not None:
                     elapsed_us = trace["aicore_e2e"]
                     elapsed_source = "op_times.trace_view.aicore_e2e"
+                elif basis == BASIS:
+                    raise ValueError("trace_view.aicore_e2e required for PyPTO candidate")
                 case["official_elapsed_us"] = elapsed_us
                 case["elapsed_us_source"] = elapsed_source
+                official["cases"][len(names)].update({
+                    "official_elapsed_us": elapsed_us, "elapsed_us_source": elapsed_source})
                 elapsed = float(elapsed_us)
                 if elapsed <= 0 or not math.isfinite(elapsed):
                     raise ValueError(f"invalid elapsed_us={elapsed}")

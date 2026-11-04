@@ -24,7 +24,7 @@ Write milestone v1 to `{MILESTONE_PATH}`.
 
 ## Curriculum
 Use the exact common headings `## 0.` through `## 6.` and `## Worked Example`
-from the policy. In §3 every D<x>.<y> has What / Why / Trigger / Cost / Depends on.
+from the policy. In §3 every D<x>.<y> has Action / Purpose / Trigger condition / Cost / Depends on.
 Use explicit `⇐` prerequisites and `⊗` benefit-coupled groups. Every phase has a
 `### M<k> Gate` block and a literal `mechanism-verification line`.
 

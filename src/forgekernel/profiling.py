@@ -21,6 +21,8 @@ def backend_for(language: str, configured: str = "auto", ncu_available: bool = T
         raise ValueError("NCU cannot profile a PyPTO/Ascend task")
     if language != "pypto" and configured in ("msprof", "cann_trace_view"):
         raise ValueError("Ascend profilers require a PyPTO task")
+    if configured == "ncu" and not ncu_available:
+        return "none"
     return configured
 
 

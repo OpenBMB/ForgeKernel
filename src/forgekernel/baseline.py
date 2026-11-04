@@ -277,7 +277,8 @@ class RefBaseline:
             basis = {BASIS_GRAPH: "CUDA graph replay, host excluded",
                      BASIS_CUPTI: "CUPTI kernel span (per-launch device duration from the profiler), "
                                   "host excluded",
-                     BASIS_CANN_TRACE_VIEW: "CANN trace_view AI-Core E2E, host excluded"
+                     BASIS_CANN_TRACE_VIEW: "CANN trace_view AI-Core E2E, host excluded",
+                     BASIS_CANN_KERNEL_DETAILS: "CANN msprof kernel_details, kernel-only, host excluded"
                      }.get(self.device_anchor_basis, "pipelined amortized window")
             lines.append(f"- device median: **{self.device_anchor_ms} ms** [MEASURED, job "
                          f"{self.job or '?'}] ({basis} ≈ pure device — "

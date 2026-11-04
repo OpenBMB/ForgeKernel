@@ -84,8 +84,12 @@ def report_to_eval(report: dict, *, config: dict | None = None) -> dict:
                 if basis == BASIS and trace.get("aicore_e2e") is not None:
                     elapsed_us = trace["aicore_e2e"]
                     elapsed_source = "op_times.trace_view.aicore_e2e"
+                elif basis == BASIS:
+                    raise ValueError("trace_view.aicore_e2e required for PyPTO candidate")
                 case["official_elapsed_us"] = elapsed_us
                 case["elapsed_us_source"] = elapsed_source
+                official["cases"][len(names)].update({
+                    "official_elapsed_us": elapsed_us, "elapsed_us_source": elapsed_source})
                 elapsed = float(elapsed_us)
                 if elapsed <= 0 or not math.isfinite(elapsed):
                     raise ValueError(f"invalid elapsed_us={elapsed}")
@@ -227,13 +231,16 @@ def _evaluate(workspace: Path, config: dict) -> dict:
     report_path = _latest_report(reports)
     if report_path is None:
         tail = (reports / "evaluator.log").read_text(encoding="utf-8", errors="replace")[-4000:]
+        emit_artifact("cann/evaluator.log", (reports / "evaluator.log").read_bytes()[-1048576:])
         return {"correctness": {"pass": False,
                                 "error": f"CANN-Bench exited {rc} without a JSON report: {tail}"},
-                "performance": {}}
+                "performance": {}, "profiler": {"backend": backend, "status": "unavailable"}}
     raw = report_path.read_bytes()
     report = json.loads(raw)
     result = report_to_eval(report, config=config)
-    artifacts = [emit_artifact("cann/official_report.json", raw)]
+    artifacts = [emit_artifact("cann/official_report.json", raw),
+                 emit_artifact("cann/evaluator.log",
+                               (reports / "evaluator.log").read_bytes()[-1048576:])]
     if rc:
         result["correctness"].update({"pass": False,
             "error": f"CANN-Bench evaluator exited {rc}; partial report is not a gate"})

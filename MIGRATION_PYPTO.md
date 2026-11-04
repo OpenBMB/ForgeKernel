@@ -1,5 +1,12 @@
 # ForgeKernel PyPTO / Ascend 950PR 迁移交接
 
+> **2026-11-04 增量**：当前分支已增加官方全量数据与原始报告归档、真实 msprof 导出、
+> Ascend 专用 profiler/prompt 路由、密封 PyPTO 参照晋升、三次确认与双侧噪声检查。
+> `tasks/swiglu-pypto-g2/` 是上一代 confirmed best 生成的 blackbox 下一代任务；
+> `tasks/gqa-pypto/` 是 Level-4 华为强库参照任务。通用 probe `valid_shape_assemble`
+> 已在真实 NPU 认证入库（job 1793761707），并明确保留 padding no-go。
+> 这些能力不由旧的 timing-only 说明替代；详细实证见 `docs/ascend-agent-validation.md`。
+
 **给下一位 agent 的第一句话：先完整阅读本文件，再检查 `repro/ascend/check_remote_env.sh` 和新机器的 Claude 沙箱，最后恢复 `tasks/swiglu-pypto`。不要从头重新设计后端。**
 
 ## 1. 当前进度与未完成事项
