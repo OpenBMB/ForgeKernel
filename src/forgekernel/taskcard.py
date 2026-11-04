@@ -222,7 +222,7 @@ def install_board_trees(run, task, machine) -> Path:
     op_dir = run.operators_dir / task.name
     run.operators_dir.mkdir(parents=True, exist_ok=True)
     shutil.copytree(lb.card, op_dir)
-    trees = [(op_dir, JOB_TIMEOUT_S)]
+    trees = [(op_dir, evaluation_timeout(op_dir, task, JOB_TIMEOUT_S))]
     if lb.ref is not None:
         ref = run.operators_dir / ref_tree(task.name)
         shutil.copytree(lb.ref, ref)
@@ -233,7 +233,8 @@ def install_board_trees(run, task, machine) -> Path:
                 from forgekernel.cannref import seal_tree
                 problem = json.loads((op_dir / PROBLEM).read_text())
                 seal_tree(ref, f"kernel.py::{problem['entry']}")
-        trees.append((ref, 2700))
+        trees.append((ref, evaluation_timeout(
+            ref, task, evaluation_timeout(op_dir, task, 2700))))
     for tree, timeout in trees:
         write_submit(tree, task, machine, timeout=timeout)
         _ignore(tree, "loop.toml")
@@ -285,6 +286,20 @@ def _toml_value(v) -> str:
     if isinstance(v, list):
         return "[" + ", ".join(_toml_value(x) for x in v) + "]"
     raise TypeError(f"{type(v).__name__} is not a loop.toml value")
+
+
+def evaluation_timeout(tree: Path, task, fallback: int) -> int:
+    """Full official evaluation budget, distinct from CANN's per-operator timeout."""
+    source = tree / "loop.toml"
+    if not source.exists():
+        source = tree / "loop.toml.example"
+    if task.language == "pypto" and source.exists():
+        cfg = tomllib.loads(source.read_text()).get("loop", {})
+        seconds = int(cfg.get("eval_timeout_s", fallback))
+        if seconds <= 0:
+            raise ValueError("[loop] eval_timeout_s must be positive")
+        return seconds
+    return fallback
 
 
 def write_submit(tree: Path, task, machine, timeout: int = JOB_TIMEOUT_S) -> Path:

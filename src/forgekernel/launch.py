@@ -563,7 +563,9 @@ def _refresh_machine(run, task, machine) -> None:
     for name in (task.name, taskcard.ref_tree(task.name)):
         tree = run.operators_dir / name
         if (tree / "submit.toml").exists():
-            timeout = taskcard.JOB_TIMEOUT_S if name == task.name else 2700
+            timeout = (taskcard.evaluation_timeout(tree, task, taskcard.JOB_TIMEOUT_S)
+                       if name == task.name else taskcard.evaluation_timeout(
+                           run.operators_dir / task.name, task, 2700))
             taskcard.write_submit(tree, task, machine, timeout=timeout)
             taskcard._commit(tree, "Chore: follow local.env")
 

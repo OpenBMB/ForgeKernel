@@ -13,6 +13,7 @@ ref_price_op = ""
 precision_contract = "off"
 correctness_monitor = "off"
 confirm_jobs = 3
+eval_timeout_s = 7200
 profiler_backend = "msprof"
 ncu_available = false
 job_env_preflight = "warn"

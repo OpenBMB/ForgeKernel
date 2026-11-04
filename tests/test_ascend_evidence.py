@@ -17,6 +17,8 @@ from forgekernel.evidence import archive_job_artifacts
 from forgekernel.inner.trajectory import IterationRecord, append_record, load_records, build_digest
 from forgekernel.loop import driver
 from forgekernel.loop.parse import parse_eval
+from forgekernel.taskcard import evaluation_timeout
+from forgekernel.task import load_task
 from forgekernel.paths import repo_root
 from test_pypto import _adapter, _report
 
@@ -119,6 +121,23 @@ def test_msprof_csv_has_units_scope_and_no_fabricated_ncu():
     assert 'not per-call' in result['scope']
     assert 'time_ns' not in result and 'tensor_pct' not in result
     assert ascend_profiler.parse_kernel_csv('wrong,column\nx,y')['status'] == 'unavailable'
+
+
+def test_full_case_job_timeout_is_configurable_and_not_per_case(tmp_path):
+    (tmp_path / 'loop.toml').write_text('[loop]\neval_timeout_s = 7200\n')
+    task = load_task(repo_root() / 'tasks/swiglu-pypto')
+    assert evaluation_timeout(tmp_path, task, 1800) == 7200
+    assert evaluation_timeout(tmp_path, task, 1800) != 1740
+    with pytest.raises(ValueError):
+        (tmp_path / 'loop.toml').write_text('[loop]\neval_timeout_s = 0\n')
+        evaluation_timeout(tmp_path, task, 1800)
+
+
+def test_timeout_is_not_mislabeled_as_no_json_or_numeric_failure():
+    log = '[gpu_entry.sh] timeout=1800s\n[gpu_entry.sh] KILLED: task exceeded 1800s timeout'
+    ev = parse_eval(log)
+    assert not ev.correctness
+    assert 'did not complete' in ev.error and 'no correctness or performance claim' in ev.error
 
 
 def test_no_msprof_is_explicit_unavailable(tmp_path, monkeypatch):
