@@ -12,6 +12,7 @@ Inside a tree the scripts sit side by side in ``notes/`` and import each other b
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
@@ -27,15 +28,30 @@ def skill_dirs() -> list[Path]:
     return sorted(d for d in root.iterdir() if (d / SKILL_FILE).is_file()) if root.is_dir() else []
 
 
-def mirror(workspace: Path) -> list[str]:
-    """Copy every skill into ``<workspace>/.claude/skills/<name>/`` (the caller keeps
-    ``.claude/`` out of git), replacing whatever a previous turn left there."""
-    dst_root = Path(workspace) / MIRROR_RELPATH
+def mirror(workspace: Path, *, backend: str = "claude") -> list[str]:
+    """Refresh skills in .claude/skills (Claude) or .agents/skills (Codex)."""
+    if backend not in ("claude", "codex"):
+        raise ValueError(f"unsupported skill backend: {backend!r}")
+    relative = Path(".agents") / "skills" if backend == "codex" else MIRROR_RELPATH
+    dst_root = Path(workspace) / relative
     names = []
     for d in skill_dirs():
         dst = dst_root / d.name
         shutil.rmtree(dst, ignore_errors=True)
         shutil.copytree(d, dst, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        if backend == "codex":
+            skill = dst / SKILL_FILE
+            body = skill.read_text(encoding="utf-8")
+            if not body.startswith("---\n"):
+                # Legacy ForgeKernel skills are ordinary Markdown. Codex requires
+                # discovery metadata; adapt only the mirror, preserving source text.
+                paragraphs = body.split("\n\n")
+                description = next((p.strip() for p in paragraphs
+                                    if p.strip() and not p.lstrip().startswith("#")), d.name)
+                description = " ".join(description.split())[:1000]
+                skill.write_text("---\nname: " + json.dumps(d.name) + "\ndescription: "
+                                 + json.dumps(description) + "\n---\n\n" + body,
+                                 encoding="utf-8")
         names.append(d.name)
     return names
 

@@ -75,6 +75,8 @@ SETTINGS_RELPATH = Path(".claude") / "settings.json"
 # the settings file so one directory is both the thing the sandbox write-protects and
 # the thing git excludes.
 POLICY_RELPATH = Path(".claude") / "forgekernel-agent-policy.json"
+CODEX_POLICY_RELPATH = Path(".codex") / "forgekernel-policy.json"
+CODEX_HOOK_SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "codex-policy-hook.py"
 FOREIGN_BACKUP_SUFFIX = ".pre-agent-policy"
 HOOK_SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "agent_policy_hook.py"
 
@@ -362,14 +364,85 @@ class AgentPolicy:
                 "the harness blocks the denied paths and URLs above.")
         return "\n".join(lines) + "\n\n"
 
+    def codex_config(self, role: str, workspace: Path) -> dict:
+        """Immutable CLI overrides for Codex's native permission profiles.
+
+        Profiles enforce shell reads/writes as well as network access. Hooks add the
+        same URL/cluster tripwires as Claude; they are not the filesystem boundary.
+        No legacy ``sandbox_mode`` may be loaded alongside this configuration.
+        """
+        ws = Path(workspace).resolve()
+        filesystem = {":root": "read", str(self.repo_root.resolve()): "read", str(ws): "write"}
+        filesystem.update({str(Path(p).resolve()): "write" for p in self.allow_write(role)})
+        filesystem.update({str(p): "read" for p in self._deny_write_paths(ws)})
+        # Protect our policy, skills and hook code even for a teacher with repo write.
+        for p in (ws / ".codex", ws / ".agents", ws / ".claude",
+                  HOOK_SCRIPT, CODEX_HOOK_SCRIPT):
+            filesystem[str(p)] = "read"
+        filesystem.update({str(p): "deny" for p in self._deny_paths(role, ws)})
+        online = not self.offline(role)
+        domains = {"*": "allow"} if online else {}
+        # Host-level denial intentionally blocks more than a repository URL. It
+        # also catches dynamically constructed URLs; the hook catches known mirrors.
+        from urllib.parse import urlsplit
+        for url in self.deny_urls(role):
+            host = urlsplit(url if "://" in url else "https://" + url).hostname
+            if host and "." in host:
+                domains["**." + host] = "deny"
+                if host.lower() == "github.com":
+                    for mirror in ("githubusercontent.com", "githubassets.com", "jsdelivr.net"):
+                        domains["**." + mirror] = "deny"
+        hook = " ".join(shlex.quote(x) for x in (
+            self.hook_python, str(CODEX_HOOK_SCRIPT), str(ws / CODEX_POLICY_RELPATH)))
+        return {
+            "approval_policy": "never",
+            "default_permissions": "forgekernel",
+            "permissions.forgekernel": {
+                "extends": ":workspace", "filesystem": filesystem,
+                "network": {"enabled": online, "domains": domains,
+                            "enable_socks5": False, "allow_local_binding": False,
+                            "dangerously_allow_all_unix_sockets": False}},
+            "features.network_proxy": online,
+            "features.hooks": True,
+            "features.multi_agent": False,
+            "features.js_repl": False,
+            "features.apps": False,
+            "features.plugins": False,
+            "features.remote_plugin": False,
+            "features.plugin_discovery_prefetch": False,
+            "features.skill_mcp_dependency_install": False,
+            "web_search": "live" if online and not self.deny_urls(role) else "disabled",
+            "mcp_servers": {},
+            "plugins": {},
+            "hooks.PreToolUse": [{"matcher": ".*", "hooks": [{
+                "type": "command", "command": hook, "timeout": 30}]}],
+        }
+
+    def install_codex(self, role: str, workspace: Path) -> Path:
+        workspace = Path(workspace).resolve()
+        path = workspace / CODEX_POLICY_RELPATH
+        path.parent.mkdir(parents=True, exist_ok=True)
+        doc = {**self.policy_document(role), "schema": 1, "backend": "codex",
+               "config": self.codex_config(role, workspace)}
+        path.write_text(json.dumps(doc, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        from forgekernel import skills
+        skills.mirror(workspace, backend="codex")
+        _git_exclude(workspace, ".codex/")
+        _git_exclude(workspace, ".agents/")
+        return path
+
     # -- installation ------------------------------------------------------------------
 
-    def install(self, role: str, workspace: Path) -> Path:
+    def install(self, role: str, workspace: Path, *, backend: str = "claude") -> Path:
         """Write this role's settings into ``workspace`` and keep them out of git.
 
         Called before every turn: roles alternate in the same working directory, and
         rewriting from the harness each time means nothing the previous turn did to the
         directory survives into the next."""
+        if backend == "codex":
+            return self.install_codex(role, workspace)
+        if backend != "claude":
+            raise ValueError(f"unsupported agent backend: {backend!r}")
         workspace = Path(workspace)
         settings_path = workspace / SETTINGS_RELPATH
         policy_path = workspace / POLICY_RELPATH
@@ -481,6 +554,23 @@ def command_findings(cmds: list[str | None], env: dict[str, str],
         texts += scripts_in(cmd)
 
     findings, seen = [], set()
+    trusted_launcher = Path(__file__).resolve().parents[3] / "scripts" / "agent-codex.sh"
+    for cmd in cmds:
+        if not cmd:
+            continue
+        try:
+            argv = shlex.split(cmd)
+        except ValueError:
+            continue
+        codex_tokens = [a for a in argv if Path(a).name in
+                        {"codex", "agent-codex.sh", "codex-run.py", "codex-goal.py"}]
+        if codex_tokens:
+            launchers = [a for a in argv if Path(a).name == "agent-codex.sh"]
+            paths = [(Path(a) if Path(a).is_absolute() else Path(cwd or ".") / a).resolve()
+                     for a in launchers]
+            if paths != [trusted_launcher.resolve()]:
+                findings.append("Codex commands must use the harness scripts/agent-codex.sh "
+                                "launcher so the native role policy is enforced")
     for source, text in texts:
         if source in seen:
             continue
@@ -611,3 +701,14 @@ def from_config(cfg: dict, *, oracle_mode: str, repo_root: Path,
         language=language,
         source_teacher_denies=bool(lc.get(KEY_SOURCE_TEACHER_DENIES, False)),
     )
+
+
+def backend_for_command(cmd: str) -> str:
+    """Resolve the harness-owned backend launcher without examining model names."""
+    try:
+        argv = shlex.split(cmd)
+    except ValueError:
+        return "claude"
+    if any(Path(a).name in {"agent-codex.sh", "codex-goal.py", "codex-run.py"} for a in argv):
+        return "codex"
+    return "claude"

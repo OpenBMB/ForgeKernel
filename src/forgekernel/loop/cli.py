@@ -150,7 +150,7 @@ def _end_process_group(proc: subprocess.Popen, grace_s: float = 8.0) -> None:
 
 # A /goal session is served by scripts/claude-goal.sh; scripts/agent-claude.sh hands a
 # turn to it when the caller sets FK_AGENT_DRIVER=goal.
-_GOAL_DRIVER_MARK = "claude-goal"
+_GOAL_DRIVER_MARKS = ("claude-goal", "codex-goal")
 
 
 def goal_leg_findings(cmds: list[str | None], env: dict[str, str],
@@ -180,10 +180,12 @@ def goal_leg_findings(cmds: list[str | None], env: dict[str, str],
     for cmd in cmds:
         if not cmd:
             continue
-        if any(_GOAL_DRIVER_MARK in body for body in [cmd, *scripts_in(cmd)]):
+        if any(mark in body for body in [cmd, *scripts_in(cmd)]
+               for mark in _GOAL_DRIVER_MARKS):
             continue
-        findings.append("agent command: does not run scripts/agent-claude.sh or "
-                        "scripts/claude-goal.sh, so it runs as written (claude -p)")
+        findings.append("agent command: does not run a ForgeKernel goal driver "
+                        "(scripts/agent-claude.sh or scripts/agent-codex.sh), "
+                        "so it runs as written without a checked goal loop")
     return list(dict.fromkeys(findings))
 
 # Server-side API trouble the agent CLI surfaces as a non-zero exit: overload (529),
@@ -350,6 +352,7 @@ class RealBackend:
         proc = subprocess.Popen(
             cmd, shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, text=True, cwd=self.workspace,
+            start_new_session=True,
         )
         box: dict = {}
 
@@ -375,7 +378,7 @@ class RealBackend:
             # pipes. `subprocess.run` killed the child on its way out; a Popen
             # driven from a thread must do that by hand, or the agent (a claude
             # process) outlives the loop and keeps spending API usage.
-            proc.kill()
+            _end_process_group(proc)
             pump.join(timeout=5)
             raise
         if "exc" in box:
@@ -389,7 +392,11 @@ class RealBackend:
         if self.agent_policy is not None:
             # Rewritten before every turn, not once: teacher and student turns share the
             # working directory, and nothing a turn does to the file may outlive it.
-            self.agent_policy.install(role, self.workspace)
+            backend = agent_policy_mod.backend_for_command(cmd)
+            if backend == "codex":
+                self.agent_policy.install(role, self.workspace, backend=backend)
+            else:
+                self.agent_policy.install(role, self.workspace)
             prompt = self.agent_policy.notice(role) + prompt
         last = ""
         attempt = 0
@@ -1861,7 +1868,7 @@ def _goal_ref_agent_problem(args) -> str | None:
         return f"could not inspect the agent command ({e})"
     if found:
         return ("the reference session needs a goal-capable agent command "
-                "(scripts/agent-claude.sh): " + "; ".join(found))
+                "(scripts/agent-claude.sh or scripts/agent-codex.sh): " + "; ".join(found))
     return None
 
 
