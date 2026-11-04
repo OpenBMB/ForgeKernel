@@ -45,8 +45,13 @@ The parent run's confirmed best is the next reference. Its source is sealed at
 run installation; the student starts from a signature-only stub. Recon uses the
 actual reference job and both `kernel_details` / `op_summary` tables, explicitly
 distinguishing measured facts, inferred candidates and unavailable mechanisms.
-The student produced a real M0 implementation and an NPU smoke PASS; official
-full-case and final confirmation outcomes are recorded below when complete.
+The student produced a real M0 implementation and an NPU smoke PASS. The first
+full M0 evaluation was REVERTed at the old 1800-second job ceiling after several
+cases had passed, before any eval JSON existed. This exposed a harness budget
+bug, not a numerical verdict: `[loop] eval_timeout_s` now configures the full
+20-case job (7200 s here), distinct from CANN's operator timeout. The failed
+row remains in the trajectory. Final confirmation outcomes are recorded below
+when complete.
 
 ### Level-4 strong-library reference
 

@@ -269,11 +269,6 @@ def parse_eval(text: str) -> EvalResult:
     """Parse the gpu_entry ``=== JSON ===`` eval block (correctness + perf)."""
     obj = _last_json_object(text)
     if not obj:
-        end = job_abend(text)
-        if end.kind != JOB_END_WHOLE:
-            return EvalResult(correctness=False,
-                              error=f"no eval JSON block; the official evaluation did not complete: {end.reason}; "
-                                    "no correctness or performance claim is available")
         from forgekernel.submit.jobs import clock_lock_refusal
         if (why := clock_lock_refusal(text)) is not None:
             # RealBackend.submit_gpu never returns such a log; another submitter
@@ -282,6 +277,11 @@ def parse_eval(text: str) -> EvalResult:
                               error=f"the job timed nothing: the board's clock lock did not "
                                     f"hold on its node (a node fault, not the kernel): "
                                     f"{why[:300]}")
+        end = job_abend(text)
+        if end.kind != JOB_END_WHOLE:
+            return EvalResult(correctness=False,
+                              error=f"no eval JSON block; the official evaluation did not complete: {end.reason}; "
+                                    "no correctness or performance claim is available")
         return EvalResult(correctness=False,
                           error="no eval JSON block in the job log (job died before the verdict?)")
     if scope := obj.get("workload_scope"):
