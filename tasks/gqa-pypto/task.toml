@@ -9,7 +9,8 @@ ref = "leaderboard/ref"
 ratio = 1.05
 timing = "device"
 [agent]
-model = "deepseek-flash"
+model = "deepseek-flash[1m]"
+effort = "max"
 
 [agent.teacher]
 model = "deepseek-flash"
