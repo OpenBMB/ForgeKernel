@@ -15,6 +15,9 @@ timing = "device"
 [agent]
 model = "deepseek-flash"
 
+[agent.teacher]
+model = "deepseek-flash"
+
 [budget]
 hours = 8.0
 max_meta = 3
