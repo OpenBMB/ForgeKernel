@@ -14,6 +14,14 @@ This KB is for operator-agnostic, measured PyPTO/Ascend facts. It intentionally 
 
 CANN-Bench PyPTO tasks use `--perf-metric-strategy trace_view`. The candidate metric is AI-Core E2E time, aggregated as a geometric mean over every public case. Default `kernel_details.csv` host timings are not the PyPTO device-time currency.
 
+## Probe-certified recipes
+
+- [valid_shape_assemble](valid_shape_assemble.md) — ✅ Verified on Ascend 950PR
+  (job `1793761707`, probe `notes/tile_valid_shape_probe.py`, `PROBE PASS max_diff=0.0`):
+  valid-only assembly into a sentinel destination. **No-go:** raw-view invalid
+  storage and multi-output padding compositions must not be assumed to be zero;
+  retry requires a new independent materialization probe.
+
 ## Current gaps
 
 Launch footprints, register/SMEM equivalents, stall taxonomies and instruction-level inspection are not yet mapped from NCU. Do not invent Ascend equivalents for unavailable NCU metrics; mark them unavailable until a real probe exists.
