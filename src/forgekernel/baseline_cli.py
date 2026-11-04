@@ -113,6 +113,20 @@ def parse_ref_stdout(text: str) -> dict:
     Returns the keys it found; a caller that gets no ``ms`` should refuse to archive
     rather than file a baseline with a hole in it.
     """
+    from forgekernel.loop.parse import _last_json_object
+    evaluation = _last_json_object(text)
+    if evaluation and evaluation.get("cann_bench"):
+        # Fail closed on official accuracy/collection failures, even if raw cases
+        # contain timings. Never select the fastest nested case as the reference.
+        from forgekernel.loop.parse import parse_eval
+        ev = parse_eval(text)
+        if not ev.correctness or ev.device_median_ms is None:
+            return {}
+        return {"ms": ev.bwd_median_ms, "ms_device": ev.device_median_ms,
+                "device_window_basis": ev.device_window_basis,
+                "n_workloads": ev.n_workloads,
+                "workloads": [w["name"] for w in ev.workloads],
+                "cann_bench": ev.cann_bench, "profiler": ev.profiler}
     dicts = [d for obj in _json_objects(text) for d in _walk(obj)]
     timed = [(ms, d) for d in dicts if (ms := _number(d, _MS_KEYS)) is not None]
     # A multi-workload report (timing.workloads_performance) nests one timing
@@ -312,6 +326,11 @@ def _report_host_bound(baseline: RefBaseline) -> None:
     that records a host-bound reading without saying so is the exact artifact that
     took a run 11.5 hours to disprove.
     """
+    from forgekernel.baseline import BASIS_CANN_KERNEL_DETAILS, BASIS_CANN_TRACE_VIEW
+    if baseline.device_anchor_basis in (BASIS_CANN_TRACE_VIEW, BASIS_CANN_KERNEL_DETAILS):
+        print("[baseline] host-window precondition not applicable: official Ascend kernel-only "
+              "timing; no CUDA host/enqueue metric is fabricated")
+        return
     from forgekernel.timing_audit import reference_warning
     verdict = baseline.host_bound
     if not verdict.measured:
@@ -385,6 +404,8 @@ def measure_and_archive(op: str, op_dir: Path, spec: dict, *,
         host_bound_ratio=measured.get("host_bound_ratio"),
         n_workloads=measured.get("n_workloads", 1),
         workloads=measured.get("workloads", []),
+        cann_bench=measured.get("cann_bench", {}),
+        profiler=measured.get("profiler", {}),
         ncu=profiler_from_ncu(ncu_csv) if ncu_csv else {},
         kernels=kernels_from_ncu(ncu_csv) if ncu_csv else [],
         samples_ms=samples, raw_stdout=perf_out[-4000:],

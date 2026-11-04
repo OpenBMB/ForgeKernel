@@ -35,11 +35,20 @@ run_with_timeout() {
 }
 
 case "$TASK" in
+    preflight)
+        run_with_timeout "$PYTHON" eval/cann_bench.py --workspace "$WORKSPACE" --preflight
+        ;;
     correctness|perf|all|cardref|ref|cann)
         run_with_timeout "$PYTHON" eval/cann_bench.py --workspace "$WORKSPACE"
         ;;
+    profiler|msprof)
+        # Profiling is collected together with the official evaluation; no unrelated
+        # synthetic kernel or CUDA channel can satisfy this task's mechanism gates.
+        run_with_timeout "$PYTHON" eval/cann_bench.py --workspace "$WORKSPACE"
+        ;;
     ncu)
-        echo "[gpu_entry.sh] NCU is not an Ascend/PyPTO channel; use the CANN trace_view report"
+        echo "[gpu_entry.sh] unavailable: NCU cannot profile Ascend" >&2
+        exit 2
         ;;
     cmd)
         run_with_timeout bash -c "$*"

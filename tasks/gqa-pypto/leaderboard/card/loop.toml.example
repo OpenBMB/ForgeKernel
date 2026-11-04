@@ -1,0 +1,22 @@
+[loop]
+language = "pypto"
+kb_arch = "ascend950"
+gate_window = "device"
+oracle_mode = "blackbox"
+recon_op = ""
+ref_mode = "ref"
+ref_name = "Huawei CANN fused-infer-attention library (exact version in report)"
+ref_shape = "20 public tasks/level4/gqa cases"
+ref_hardware = "Ascend950PR"
+ref_from_goal = "off"
+ref_price_op = ""
+precision_contract = "off"
+correctness_monitor = "off"
+confirm_jobs = 3
+profiler_backend = "msprof"
+ncu_available = false
+job_env_preflight = "warn"
+timeline_probe = "off"
+stall_pricing = false
+orch_census = false
+dsl_source_dirs = ["/data/shwstone/Workspace/forgekernel-sources/pypto", "/data/shwstone/Workspace/forgekernel-sources/pto-isa"]

@@ -184,6 +184,9 @@ class EvalResult:
     # ``correctness``; the driver applies the card's [loop] precision_contract
     # (loop/precision_gate.py). None = the bench reported none.
     precision: dict | None = None
+    # Official board evidence is distinct from the campaign's single reference.
+    cann_bench: dict = field(default_factory=dict)
+    profiler: dict = field(default_factory=dict)
 
 
 _WORKLOAD_KEYS = ("device_median_ms", "bwd_median_ms", "ref_device_ms", "vs_ref_device", "vs_ref")
@@ -200,6 +203,8 @@ def _workloads(perf: dict) -> list:
             v = w.get(key)
             if isinstance(v, (int, float)) and not isinstance(v, bool):
                 item[key] = float(v)
+        if isinstance(w.get("cann_bench"), dict):
+            item["cann_bench"] = w["cann_bench"]
         out.append(item)
     return out
 
@@ -314,6 +319,8 @@ def parse_eval(text: str) -> EvalResult:
 
     return EvalResult(
         prep=prep,
+        cann_bench=obj.get("cann_bench") or {},
+        profiler=obj.get("profiler") or {},
         precision=obj.get("precision") if isinstance(obj.get("precision"), dict) else None,
         n_workloads=n_wl,
         workloads=workloads,

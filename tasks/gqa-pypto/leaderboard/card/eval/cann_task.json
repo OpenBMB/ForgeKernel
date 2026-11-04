@@ -1,0 +1,10 @@
+{
+  "operator": "GQA",
+  "task_dir": "tasks/level4/gqa",
+  "source_dir": ".",
+  "warmup": 3,
+  "repeat": 5,
+  "profiler_backend": "msprof",
+  "perf_metric_strategy": "kernel_details",
+  "timing_basis": "cann_trace_view"
+}

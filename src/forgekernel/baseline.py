@@ -53,7 +53,8 @@ BASIS_GRAPH = "cuda_graph"    # replay of a captured graph: the host is out of t
 BASIS_CUPTI = "cupti_kernel_span"
 # CANN-Bench trace_view reports AI-Core E2E time for PyPTO, with host dispatch excluded.
 BASIS_CANN_TRACE_VIEW = "cann_trace_view"
-HOST_FREE_BASES = (BASIS_GRAPH, BASIS_CUPTI, BASIS_CANN_TRACE_VIEW)
+BASIS_CANN_KERNEL_DETAILS = "cann_kernel_details"
+HOST_FREE_BASES = (BASIS_GRAPH, BASIS_CUPTI, BASIS_CANN_TRACE_VIEW, BASIS_CANN_KERNEL_DETAILS)
 _ROLE_FILENAMES = {ROLE_LIBRARY: BASELINE_FILENAME, ROLE_ARCHITECTURE: ARCH_BASELINE_FILENAME}
 
 # Bumped when a field changes meaning. A stale archive is refused rather than
@@ -112,6 +113,8 @@ class RefBaseline:
     host_enqueue_ms: float | None = None
     host_bound_ratio: float | None = None
     ncu: dict = field(default_factory=dict)
+    profiler: dict = field(default_factory=dict)  # backend-labelled non-NCU evidence
+    cann_bench: dict = field(default_factory=dict)
     # Every kernel the reference's timed window launched (inner.ncu.kernel_table:
     # name / launches / time_ns / pct), from the same CSV ``ncu`` was read off.
     # ``ncu`` keeps the dominant kernel's signature; this keeps the decomposition,
@@ -273,7 +276,8 @@ class RefBaseline:
         if self.device_anchor_ms is not None:
             basis = {BASIS_GRAPH: "CUDA graph replay, host excluded",
                      BASIS_CUPTI: "CUPTI kernel span (per-launch device duration from the profiler), "
-                                  "host excluded"
+                                  "host excluded",
+                     BASIS_CANN_TRACE_VIEW: "CANN trace_view AI-Core E2E, host excluded"
                      }.get(self.device_anchor_basis, "pipelined amortized window")
             lines.append(f"- device median: **{self.device_anchor_ms} ms** [MEASURED, job "
                          f"{self.job or '?'}] ({basis} ≈ pure device — "
@@ -312,6 +316,15 @@ class RefBaseline:
                 lines.append(f"    {k}: {v}")
         else:
             lines.append("- NCU: no collection path; this operator writes no NCU-anchored gate line")
+        if self.profiler or self.cann_bench:
+            from forgekernel.profiling import evidence_digest, benchmark_digest
+            if self.device_window_basis in (BASIS_CANN_TRACE_VIEW, BASIS_CANN_KERNEL_DETAILS):
+                lines[1] = (f"- compatibility bwd_median_ms: {self.ms} ms (alias of AI-Core "
+                            "device time; host/end-to-end latency NOT measured)")
+            lines.append("- Ascend profiler evidence (not NCU): "
+                         + json.dumps(evidence_digest(self.profiler)))
+            lines.append("- CANN official data (benchmark baseline / hardware bound, NOT the "
+                         "campaign reference): " + json.dumps(benchmark_digest(self.cann_bench)))
         if self.kernels:
             from forgekernel.window_contract import render_kernel_rows
             lines.append(f"- every launch inside the reference's timed window ({len(self.kernels)} "

@@ -1,0 +1,19 @@
+{
+  "parent_task": "swiglu-pypto",
+  "parent_sha": "0ef2c8f0ed4012593fedd5ae5bca96d5625d902d",
+  "speedup": 1.0448916505769712,
+  "noise_floor": 0.039538142698679835,
+  "ratio_basis": "cross-job-median-vs-median",
+  "samples_ms": [
+    0.06308996443957286,
+    0.06470939462712373,
+    0.06454759002529661
+  ],
+  "ref_samples_ms": [
+    0.06744523788229782,
+    0.06800526696752839,
+    0.06709793816743072
+  ],
+  "disclosure": "blackbox",
+  "student_seed": "signature-only stub; promoted body is teacher/student sealed"
+}

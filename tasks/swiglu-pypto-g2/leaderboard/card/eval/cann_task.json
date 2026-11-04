@@ -1,0 +1,8 @@
+{
+  "operator": "SwiGlu",
+  "task_dir": "tasks/level1/swi_glu",
+  "warmup": 3,
+  "repeat": 5,
+  "profiler_backend": "msprof",
+  "source_dir": "."
+}

@@ -80,6 +80,7 @@ from forgekernel.window_contract import (
 )
 from forgekernel.loop.kb_lint import derive_reference_tokens, lint_kb_dir
 from forgekernel.loop import lang_mode
+from forgekernel.profiling import backend_for
 from forgekernel.paths import operators_dir
 from forgekernel.submit.jobs import (STATUS_LOST, STATUS_RUNNING,
                                      STATUS_SUCCEEDED, TRANSPORT_ERROR_MARKER,
@@ -510,6 +511,10 @@ class RealBackend:
                 raise JobTransportError(
                     f"the job could not be delivered to {self.last_cluster or 'the GPU machine'}"
                     f" — check the ssh alias and the host: {detail[:600]}")
+            from forgekernel.evidence import archive_job_artifacts
+            op_dir = self._op_dir()
+            if op_dir is not None:
+                archive_job_artifacts(log, op_dir / ".jobs" / str(job) / "artifacts")
             return log
 
     def _op_dir(self) -> Path | None:
@@ -2771,6 +2776,8 @@ def _main(argv: list[str] | None = None) -> int:
         meta_status_path=meta_status_path,
         branch_prefix=branch_prefix, target_ms=target_ms,
         language=language, gate_window=gate_window, kb_arch=kb_arch,
+        profiler_backend=backend_for(
+            language, cfg.get("loop", {}).get("profiler_backend", "auto"), ncu_available(cfg)),
         ref_baseline=ref_baseline, arch_baseline=arch_baseline,
         window_contract=window_contract,
         deadline_epoch=time.time() + args.hours * 3600, backend=backend, now=time.time,
@@ -3152,6 +3159,8 @@ def _main(argv: list[str] | None = None) -> int:
                               f"reporting the student median only", flush=True)
                     elif ref_samples:
                         confirm["ref_samples_ms"] = ref_samples
+                        confirm["ref_jobs"] = runs
+                        confirm["ratio_basis"] = "cross-job-median-vs-median"
                         confirm["ref_median_ms"] = statistics.median(ref_samples)
                         confirm["median_ratio"] = confirm["ref_median_ms"] / confirm["median_ms"]
                         print(f"[loop] confirm: median-vs-median ratio "

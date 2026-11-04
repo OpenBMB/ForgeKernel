@@ -1,0 +1,15 @@
+[task]
+language = "pypto"
+arch = "ascend950"
+[leaderboard]
+suite = "cann-bench"
+card = "leaderboard/card"
+ref = "leaderboard/ref"
+[target]
+ratio = 1.05
+timing = "device"
+[agent]
+model = "deepseek-flash"
+[budget]
+hours = 16
+max_meta = 4

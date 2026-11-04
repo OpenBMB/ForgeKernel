@@ -226,6 +226,13 @@ def install_board_trees(run, task, machine) -> Path:
     if lb.ref is not None:
         ref = run.operators_dir / ref_tree(task.name)
         shutil.copytree(lb.ref, ref)
+        if task.language == "pypto":
+            example = op_dir / "loop.toml.example"
+            lc = tomllib.loads(example.read_text()).get("loop", {}) if example.exists() else {}
+            if lc.get("oracle_mode") == "blackbox":
+                from forgekernel.cannref import seal_tree
+                problem = json.loads((op_dir / PROBLEM).read_text())
+                seal_tree(ref, f"kernel.py::{problem['entry']}")
         trees.append((ref, 2700))
     for tree, timeout in trees:
         write_submit(tree, task, machine, timeout=timeout)
@@ -250,7 +257,11 @@ def write_board_loop_toml(run, task, op_dir: Path, *, deny: list[str], ncu: bool
         # The frozen CANN task carries a public reference in its own tree. The teacher
         # reads it there; the student never receives that tree in a job.
         lc["language"] = task.loop_language
-        lc["oracle"] = str(run.operators_dir / ref_tree(task.name) / "src")
+        if lc.get("oracle_mode") == "blackbox":
+            lc.pop("oracle", None)
+            lc["recon_op"] = ref_tree(task.name)
+        else:
+            lc["oracle"] = str(run.operators_dir / ref_tree(task.name) / "src")
         lc["ref_submit_op"] = ref_tree(task.name)
         lc["ref_in_job"] = False
     if not ncu:

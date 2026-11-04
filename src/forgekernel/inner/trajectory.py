@@ -112,6 +112,7 @@ class IterationRecord:
     # e_cand / e_ref and the stress profiles' statuses. {} = contract off, no eval, or
     # recorded before the field existed.
     precision: dict = field(default_factory=dict)
+    cann_bench: dict = field(default_factory=dict)  # official scores/anchors, never ref_*
 
     def __post_init__(self):
         if self.verdict not in ("KEEP", "REVERT", "NEUTRAL"):
@@ -283,6 +284,8 @@ def build_digest(records: list[IterationRecord], target: dict,
                         for r in records if r.verdict == "REVERT"],
         "profiler": [{"iter": r.iter, "verdict": r.verdict, **r.profiler}
                      for r in records if r.profiler],
+        "cann_bench": [{"iter": r.iter, "verdict": r.verdict, **r.cann_bench}
+                       for r in records if r.cann_bench],
         # red flags derived from the trajectory shape itself; empty list when clean
         "flags": [f for f in (constant_output_flag(records),) if f],
     }
