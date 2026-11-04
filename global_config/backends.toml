@@ -9,3 +9,10 @@
 # base_url = "https://gateway.example.com/anthropic"
 # wire     = "anthropic"
 # key_env  = "MY_GATEWAY_API_KEY"
+
+# PyPTO campaigns explicitly use this provider for BOTH roles. This bypasses
+# native TEACHER_* overrides; changing only a model ID never changes its host.
+[deepseek]
+base_url = "https://api.deepseek.com/anthropic"
+wire = "anthropic"
+key_env = "API_KEY"

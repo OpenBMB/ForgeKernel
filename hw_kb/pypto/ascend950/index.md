@@ -21,6 +21,12 @@ CANN-Bench PyPTO tasks use `--perf-metric-strategy trace_view`. The candidate me
   valid-only assembly into a sentinel destination. **No-go:** raw-view invalid
   storage and multi-output padding compositions must not be assumed to be zero;
   retry requires a new independent materialization probe.
+- [device_floor_sandwich](device_floor_sandwich.md) — ✅ Verified on Ascend 950PR
+  (job `1793791124`, probe `notes/recon_round5.py` P3): device-side per-launch floor
+  ≈ 0.5–1.2 µs (vs ~11.9 µs host-paced wall floor); device-event sandwich is the
+  certified msprof-free timing path. **Dead channels in torch_npu 2.13.0.rc1:**
+  kineto chrome export carries 0 kernel events; in-process torch_npu.profiler msprof
+  backend lacks the export API.
 
 ## Current gaps
 

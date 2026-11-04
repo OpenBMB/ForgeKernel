@@ -59,7 +59,7 @@
 
 | 流程 | 论文要求 | 当前实现与运行证据 | 判定与 Gap |
 |---|---|---|---|
-| M0 架构课程 | teacher 生成架构优先 DAG；student 实现；M0 作为架构单元验收 | teacher 生成 `milestone v1`，`violations=none`；student 提交 D0.1–D0.9，20/20、KEEP | **[MATCH]** 这是本次已完整验证的部分。 |
+| M0 架构课程 | teacher 生成架构优先 DAG；student 实现；M0 作为架构单元/验收 | teacher 生成 `milestone v1`，`violations=none`；student 提交 D0.1–D0.9，20/20、KEEP | **[MATCH]** 这是本次已完整验证的部分。 |
 | 后续 M1→Mk | 在冻结拓扑内调整 tile、stage、unroll、buffer 等杠杆 | milestone 写了 D1.1–D1.3，但 run 在 M0 后因达到宽松目标停止 | **[UNVERIFIED]** 文档存在不代表 Ascend 上已执行有效。 |
 | 内层测量反馈 | 正确性、计时、profiling 驱动 KEEP/REVERT | 20-case 正确性和 trace_view 时间驱动 KEEP；`profiler={}` | **[PARTIAL]** 时间闭环存在，硬件机制反馈缺失。 |
 | 外层 arch loop | plateau、DAG exhausted 或 gate impasse 后，teacher 定价、probe、修改 milestone | 共享 driver 保留该逻辑；本次 `meta_steps=0`，未触发 | **[UNVERIFIED]** 不能声称 Ascend 外层诊断已可用。 |

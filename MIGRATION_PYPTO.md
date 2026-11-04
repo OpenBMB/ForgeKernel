@@ -1,5 +1,13 @@
 # ForgeKernel PyPTO / Ascend 950PR 迁移交接
 
+> **模型路由更正（2026-11-04）**：当前 PyPTO 任务固定 `provider="deepseek"`，
+> 师生均为 `deepseek-flash[1m]` / `effort="max"`，使用官方
+> `https://api.deepseek.com/anthropic` 和 `.env` 的 `API_KEY`。
+> 旧的 `TEACHER_BASEURL` 曾仍指向 Kimi；只改模型名并没有切换服务商。
+> 本机已删除该旧配置并停止旧 GQA 的配额重试，两侧实际启动命令均通过 DeepSeek 连通性检查。
+> **旧 run 快照不会随 task 修改，应新建 run；不要把旧结果重新标为全 DeepSeek。**
+> 详见 `docs/ascend-agent-validation.md` 的 provider-routing incident。
+
 > **2026-11-04 增量**：当前分支已增加官方全量数据与原始报告归档、真实 msprof 导出、
 > Ascend 专用 profiler/prompt 路由、密封 PyPTO 参照晋升、三次确认与双侧噪声检查。
 > `tasks/swiglu-pypto-g2/` 是上一代 confirmed best 生成的 blackbox 下一代任务；

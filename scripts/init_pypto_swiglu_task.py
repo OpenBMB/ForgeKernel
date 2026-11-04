@@ -77,7 +77,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cann-bench-dir", type=Path, required=True)
     parser.add_argument("--reference-dir", type=Path, required=True,
                         help="CANN-Bench examples/pypto_example")
-    parser.add_argument("--model", default="claude-opus-5-5")
+    parser.add_argument("--model", default="deepseek-flash[1m]")
+    parser.add_argument("--provider", default="deepseek")
     parser.add_argument("--hours", type=float, default=8.0)
     parser.add_argument("--target-ratio", type=float, default=1.05)
     parser.add_argument("--pypto-source", default="")
@@ -235,7 +236,9 @@ ratio = {args.target_ratio}
 timing = "device"
 
 [agent]
+provider = {json.dumps(args.provider)}
 model = {json.dumps(args.model)}
+effort = "max"
 
 [budget]
 hours = {args.hours}

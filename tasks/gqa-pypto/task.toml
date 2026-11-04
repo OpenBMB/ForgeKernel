@@ -9,11 +9,9 @@ ref = "leaderboard/ref"
 ratio = 1.05
 timing = "device"
 [agent]
+provider = "deepseek"
 model = "deepseek-flash[1m]"
 effort = "max"
-
-[agent.teacher]
-model = "deepseek-flash"
 [budget]
 hours = 16
 max_meta = 4

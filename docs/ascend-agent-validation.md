@@ -6,9 +6,12 @@ reproduces the paper's CANN-Bench 1.1.2 scores on Ascend910C.
 
 ## Execution facts
 
-- Controller: current `feat/pypto-ascend` worktree. Teacher resolves through
-  `TEACHER_*` to `k3.1-pro`; student uses the task's model. Secrets stay in `.env`
-  and are not written to task snapshots, commands, logs or commits.
+- Controller: current `feat/pypto-ascend` worktree. Current PyPTO tasks explicitly
+  select provider `deepseek` for BOTH roles, endpoint
+  `https://api.deepseek.com/anthropic`, model `deepseek-flash[1m]`, effort `max`.
+  The provider reads `API_KEY`; native `TEACHER_*` overrides cannot redirect these
+  tasks. Earlier experiments used Kimi for the teacher (see routing incident below).
+  Secrets remain in gitignored `.env`, never in task snapshots or command lines.
 - NPU: Ascend950PR_9579, CANN 9.2, PyPTO 0.3.0, torch_npu 2.13.0.rc1.
 - Official evaluator: CANN-Bench 2.0.0 at
   `059cb61d41b279ad021160517bd2a5f6b7a05e01`; public cases, official golden
@@ -20,6 +23,65 @@ reproduces the paper's CANN-Bench 1.1.2 scores on Ascend910C.
 - Official JSON, evaluator logs, msprof export records and raw CSVs travel via
   bounded, SHA-256-checked job artifacts. Per-iteration trajectory rows include
   official scores, baseline/bound, jitter, AICPU gap and memory fields.
+
+## Provider-routing incident and corrected configuration
+
+Changing `TEACHER_MODEL` alone did **not** switch providers: `.env` retained
+`TEACHER_BASEURL=https://api.kimi.com/coding` and the old teacher credential.
+Native teacher routing in `agents.py` therefore sent requests with a DeepSeek
+model string to Kimi. A successful `READY` reply proved connectivity, NOT the
+identity of the served model. The later Kimi weekly-quota response exposed this
+configuration error; the claimed all-DeepSeek experiment was not valid.
+
+Affected runs (retain their original snapshots/logs; do not relabel them):
+
+- `.artifacts/swiglu-pypto_261104-172829-bdf3/`: hardware measurements remain
+  valid, but the teacher provider was Kimi. Final 3+3 confirmation: student
+  **0.0557052830 ms**, speedup **1.2103149052×** vs the public PyPTO reference.
+  This is not an all-DeepSeek or blackbox result.
+- `.artifacts/gqa-pypto_261104-172829-55be/`: reference **0.0612754942 ms**;
+  five recon rounds completed, then teacher distillation hit Kimi's weekly
+  quota. The retrying controller was stopped when the routing error was found.
+  No student result from this run establishes parity with the strong library.
+
+Fix: `global_config/backends.toml` now declares an explicit `deepseek` provider.
+All three PyPTO task cards and both task generators use it; teacher-specific
+model overrides that removed `[1m]` were removed. Local Kimi `TEACHER_*`
+credentials/endpoint were removed. The CLI launcher replaces both Anthropic
+API credentials with the selected provider key and clears inherited OAuth.
+The isolated Claude configuration remains in use; no personal global settings
+were overwritten.
+
+Verified with **both actual task launch commands**: the exported endpoint is
+DeepSeek's official Anthropic API, the selected credential variable is
+`API_KEY`, and teacher/student each returned `DEEPSEEK_ROUTE_OK` with rc=0.
+Regression tests also inject stale Kimi endpoint/model/key and OAuth values,
+and verify that neither role falls back to them. Local evidence:
+`.artifacts/ascend-gap-work/deepseek-official-routing/preflight.json`.
+
+Configuration for future launches:
+
+```bash
+set -a
+source local.env
+source .env
+set +a
+unset TEACHER_API_KEY TEACHER_BASEURL TEACHER_MODEL CLAUDE_CODE_OAUTH_TOKEN
+export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
+export ANTHROPIC_API_KEY="$API_KEY" ANTHROPIC_AUTH_TOKEN="$API_KEY"
+export ANTHROPIC_MODEL='deepseek-flash[1m]'
+export ANTHROPIC_DEFAULT_OPUS_MODEL='deepseek-flash[1m]'
+export ANTHROPIC_DEFAULT_SONNET_MODEL='deepseek-flash[1m]'
+export ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek-flash
+export CLAUDE_CODE_SUBAGENT_MODEL=deepseek-flash
+export CLAUDE_CODE_EFFORT_LEVEL=max
+export CLAUDE_CODE_AUTO_COMPACT_WINDOW=786432
+```
+
+Old runs freeze `task.toml`: editing `tasks/<op>/` does not rewrite their routing.
+For a genuinely all-DeepSeek experiment use `forge new tasks/<op>`, not a resume
+of an affected native-provider snapshot. Runtime-only source-mode measurements
+must not be presented as independently rebuilt blackbox performance.
 
 ## Real-device evidence
 
@@ -88,7 +150,7 @@ path/checksum handling, no-NCU routing, verification-channel validation, teacher
 model selection, sealed promotion, final-target rejection, cross-job noise,
 Level-4 task generation and independent experiment edit checks.
 
-Latest full run: **2083 passed**. The two initial failures were controller-only
+Last full run before the routing correction: **2085 passed**. The two initial failures were controller-only
 missing `torch`; installing the documented test dependency did not weaken or
 skip any test.
 

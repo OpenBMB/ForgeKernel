@@ -12,7 +12,9 @@ ratio = 1.05
 timing = "device"
 
 [agent]
-model = "deepseek-flash"
+provider = "deepseek"
+model = "deepseek-flash[1m]"
+effort = "max"
 
 [budget]
 hours = 8.0

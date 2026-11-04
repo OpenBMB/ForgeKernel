@@ -41,6 +41,8 @@ def test_generic_level4_task_is_complete_and_sealable(tmp_path):
                     '--pypto-source', '.', '--pto-isa', '.'])
     task = load_task(dest)
     assert task.name == 'gqa' and len(task.shapes) == 1
+    assert task.teacher.provider == task.student.provider == 'deepseek'
+    assert task.teacher.model == task.student.model == 'deepseek-flash[1m]'
     for name in ('build.sh', 'setup.py', 'kernel.py', 'cann_bench/__init__.py'):
         assert (task.leaderboard.ref / 'src' / name).is_file(), name
     assert 'NotImplementedError' in (task.leaderboard.card / 'kernel.py').read_text()

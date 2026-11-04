@@ -66,7 +66,8 @@ def main(argv=None):
     p.add_argument('--hours', type=float, default=16)
     p.add_argument('--max-meta', type=int, default=4)
     p.add_argument('--oracle', choices=('blackbox', 'source'), default='blackbox')
-    p.add_argument('--student-model', default='deepseek-flash')
+    p.add_argument('--student-model', default='deepseek-flash[1m]')
+    p.add_argument('--provider', default='deepseek')
     p.add_argument('--pypto-source', default='/data/shwstone/Workspace/forgekernel-sources/pypto')
     p.add_argument('--pto-isa', default='/data/shwstone/Workspace/forgekernel-sources/pto-isa')
     args = p.parse_args(argv)
@@ -177,7 +178,9 @@ ref = "leaderboard/ref"
 ratio = {args.target_ratio}
 timing = "device"
 [agent]
+provider = {json.dumps(args.provider)}
 model = {json.dumps(args.student_model)}
+effort = "max"
 [budget]
 hours = {args.hours}
 max_meta = {args.max_meta}
