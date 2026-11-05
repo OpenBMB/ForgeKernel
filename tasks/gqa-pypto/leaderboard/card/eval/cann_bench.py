@@ -63,6 +63,7 @@ def report_to_eval(report: dict, *, config: dict | None = None) -> dict:
         "cases": [{"case_id": c.get("case_id"), "elapsed_us": c.get("elapsed_us"),
                    **{k: c.get(k) for k in CASE_FIELDS}} for c in cases],
         "comparison": "benchmark baseline and hardware bound; NOT campaign reference",
+        "timing_basis": basis,
     }
     failures = []
     for case in cases:

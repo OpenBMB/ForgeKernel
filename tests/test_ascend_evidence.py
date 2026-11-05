@@ -66,11 +66,13 @@ def test_kernel_details_and_trace_view_are_both_retained_with_explicit_selection
     report['operators'][0]['cases'][0]['op_times']['device_kernels'] = {'candidate': 123}
     result = _adapter().report_to_eval(report, config={'timing_basis': 'cann_trace_view'})
     assert result['performance']['device_window_basis'] == 'cann_trace_view'
+    assert result['cann_bench']['timing_basis'] == result['performance']['device_window_basis']
     assert result['performance']['workloads'][0]['device_median_ms'] == .1
     assert result['cann_bench']['cases'][0]['official_elapsed_us'] == 100
     assert result['cann_bench']['cases'][0]['op_times']['device_kernels'] == {'candidate': 123}
     vendor = _adapter().report_to_eval(report, config={'timing_basis': 'cann_kernel_details'})
     assert vendor['performance']['device_window_basis'] == 'cann_kernel_details'
+    assert vendor['cann_bench']['timing_basis'] == vendor['performance']['device_window_basis']
 
 
 def test_evaluator_failure_preserves_official_case_error():
@@ -239,6 +241,7 @@ def test_shipped_card_adapter_reports_routing_and_measurement(task):
     assert result['measurement']['status'] == 'available'
     assert result['profiler']['backend'] == config['profiler_backend'] == 'msprof'
     assert result['profiler']['timing_basis'] == result['performance']['device_window_basis']
+    assert result['cann_bench']['timing_basis'] == result['performance']['device_window_basis']
 
 
 def test_card_backend_and_basis_resolution_matches_the_control_plane():
@@ -273,6 +276,7 @@ def test_a_missing_declared_timing_window_is_measurement_unavailable_not_a_corre
     assert result['performance'] == {}
     assert result['measurement']['status'] == 'unavailable'
     assert result['measurement']['timing_basis'] == 'cann_trace_view'
+    assert result['cann_bench']['timing_basis'] == 'cann_trace_view'
     assert 'trace_view.aicore_e2e' in result['measurement']['reason']
     ev = parse_eval('=== JSON ===\n' + json.dumps(result))
     assert ev.correctness is True and ev.measurement['status'] == 'unavailable'
@@ -322,5 +326,6 @@ def test_evaluate_resolves_omitted_backend_and_keeps_report_metadata(
     assert result['profiler']['reason'] == 'msprof executable unavailable'
     assert result['profiler']['cases'][0]['trace_view']['aicore_e2e'] == 100
     assert result['performance']['device_window_basis'] == expected_basis
+    assert result['cann_bench']['timing_basis'] == result['performance']['device_window_basis']
     assert (workspace / '.cann_results').is_dir()
     assert list((workspace / '.cann_results').glob('*/forge_eval.json'))
