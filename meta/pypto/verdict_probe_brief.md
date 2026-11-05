@@ -15,3 +15,12 @@ casewise times, geometric means, spreads and the candidate SHA. It never changes
 the working kernel. Do not use CUDA/SASS/timeline helpers. A synthetic probe's
 speed is not an official operator gate reading. Cite measured numeric gain via
 `reopen_price: <±x%> via probe:notes/<name>.py#<contract index>`.
+
+Every case of a shape-specialized kernel is its own JIT compile, so a 20-case
+experiment prices one architecture question at 20 compiles. Add `"cases"` to the
+spec to narrow one experiment: `"cases": "scout"` is the card's declared
+representative set (GQA: 5 of 20), `"cases": "gqa_8"` is a single-case
+falsification probe, `"gqa_1,gqa_8"` an explicit list. A narrowed experiment
+prints `PROBE SCOUT` and its JSON says `"certifies": false` -- that is not a
+broken probe. A scout result buys or kills a full-set gate; it is never the gate
+itself, and no KEEP or reopen_price may cite one as a full-case reading.

@@ -23,6 +23,26 @@ echo "  python:   $PYTHON"
 echo "  NPU:      ${ASCEND_RT_VISIBLE_DEVICES:-unset} (logical device 0)"
 echo "  CANN:     $CANN_BENCH_DIR"
 
+# A gate task judges and times the card's whole declared case set. ``scout`` is the
+# explicit request for its representative subset (``FK_CANN_CASES`` may name ids
+# instead); the adapter documents the subset in ``workload_scope``, which the loop
+# refuses as a gate reading. An ambient FK_CANN_CASES must therefore never narrow a
+# gate task: that would turn a pricing reading into the row a KEEP was decided on.
+case "$TASK" in
+    preflight|correctness|perf|all|cardref|ref|cann|profiler|msprof)
+        if [ -n "${FK_CANN_CASES:-}" ]; then
+            echo "  cases:    all (ignoring FK_CANN_CASES=${FK_CANN_CASES} for gate task '$TASK')"
+            unset FK_CANN_CASES
+        fi
+        ;;
+    scout)
+        export FK_CANN_CASES="${1:-scout}"
+        echo "  cases:    $FK_CANN_CASES (pricing reading, not a gate)"
+        ;;
+    *)
+        ;;
+esac
+
 run_with_timeout() {
     echo "[gpu_entry.sh] timeout=${TASK_TIMEOUT}s"
     local started=$SECONDS
@@ -48,6 +68,12 @@ case "$TASK" in
         run_with_timeout "$PYTHON" eval/cann_bench.py --workspace "$WORKSPACE" --preflight
         ;;
     correctness|perf|all|cardref|ref|cann)
+        run_with_timeout "$PYTHON" eval/cann_bench.py --workspace "$WORKSPACE"
+        ;;
+    scout)
+        # The card's representative subset (or the ids given as the next argument).
+        # One job, one build: the adapter narrows the official task root instead of
+        # re-invoking the evaluator per case. Never a gate -- see workload_scope.
         run_with_timeout "$PYTHON" eval/cann_bench.py --workspace "$WORKSPACE"
         ;;
     profiler|msprof)

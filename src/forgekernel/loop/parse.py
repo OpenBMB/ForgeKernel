@@ -187,9 +187,11 @@ class EvalResult:
     # Official board evidence is distinct from the campaign's single reference.
     cann_bench: dict = field(default_factory=dict)
     profiler: dict = field(default_factory=dict)
-    # Set when the official judge passed every case but the card's declared timing
-    # window is absent from the report: a configuration fault, not a kernel one.
-    # Kept off ``correctness`` so the next iteration is not aimed at the kernel.
+    # The card's structured measurement outcome ("available" / "unavailable" /
+    # "not_measured") and, when unavailable, which declared timing basis the
+    # official report failed to supply. A configuration defect, not a wrong kernel:
+    # the driver stops structurally instead of resetting the tree and billing a
+    # correctness REVERT.
     measurement: dict = field(default_factory=dict)
 
 
@@ -330,7 +332,7 @@ def parse_eval(text: str) -> EvalResult:
         prep=prep,
         cann_bench=obj.get("cann_bench") or {},
         profiler=obj.get("profiler") or {},
-        measurement=obj.get("measurement") or {},
+        measurement=obj.get("measurement") if isinstance(obj.get("measurement"), dict) else {},
         precision=obj.get("precision") if isinstance(obj.get("precision"), dict) else None,
         n_workloads=n_wl,
         workloads=workloads,

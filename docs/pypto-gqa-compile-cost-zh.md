@@ -72,11 +72,16 @@ cost 只记墙钟,不假装拆出了编译和设备各自的占比。要拆需�
 probe 过、按 KB 的准入条件认证过才能写进来。这里不提前写一个看起来精确的数。
 
 **超时不再丢掉现场。** `gpu_entry.sh` 原来直接 `--signal=KILL`,一个编译了四十分钟的 probe
-被杀掉之后什么都不剩。现在先发 SIGTERM、30 秒后才 KILL,adapter 有机会把日志和 cost 行刷出来;
-超时消息也会说明这段预算是编译和设备共享的。决定要不要缩小 job,靠的就是这条记录。
+被杀掉之后什么都不剩。现在 shell 先发 SIGTERM、30 秒后才 KILL,但那只是兜底:
+adapter 自己会按 `TASK_TIMEOUT - 预留` 停住 evaluator(默认比 job 预算早 30 到 120 秒),
+并先对它自己的进程组发 SIGTERM 再 KILL——`kernel_eval` 会对每个 case 起子进程,
+只杀父进程会留下一批还占着 NPU 的进程。停下之后 adapter 写出结构化 partial eval:
+墙钟、预算、停止原因、`workload_scope`(如果是 scout)、以及已经产出的日志与 partial report。
+里面没有任何正确性或性能读数——一个没跑完的 job 没有读数,只有代价。
+adapter 自己如果被外层 TERM,也会走同一条路,而不是按默认动作直接退出。
 
-**可以只问一部分 case。** adapter 接受 `FK_CANN_CASES`,把它翻成 evaluator 的 case 过滤参数,
-于是一次 scout job 只编译几个代表 case。GQA 卡片声明了 5 个:
+**可以只问一部分 case。** adapter 接受 `FK_CANN_CASES`。`scout` 取卡片声明的代表集,
+也可以直接写 id(`gqa_8` 单 case 探针,或 `gqa_1,gqa_8`)。GQA 卡片声明了 5 个:
 
 ```json
 "scout_cases": ["gqa_1", "gqa_5", "gqa_8", "gqa_11", "gqa_16"]
@@ -86,15 +91,35 @@ probe 过、按 KB 的准入条件认证过才能写进来。这里不提前写�
 `gqa_16` 是测试帮我补上的——第一版 scout 集漏了 mtp regime,而一个漏掉某个 regime 的 scout 集
 比付全量代价更糟:它会用不适用的 shape 去给一个架构决策定价。
 
+怎么做到的要紧,因为它决定了这个机制是否真的可用。**上有的 CANN-Bench 没有 case 集合参数**:
+`kernel_eval.cli` 只有 `--case-id` 且 `type=int`,一次一个 case;`ForgeKernel` 原来的
+`case_filter_flag` 字段实际上无 flag 可填。所以 subset 改成用它**本来就支持**的那条路径表达:
+把官方 task 目录复制成一个隔离的 task root——`<tmp>/tasks/level4/gqa/cases.yaml` 只留选中的
+case,`proto.yaml`、`golden.py`、`cases.csv` 全部 symlink 回官方文件,再把官方
+`tasks/metadata`(和 `suite_manifest.json`)link 到 `<tmp>/tasks/` 下。
+`resolve_task_dir` 找到 `<tmp>/tasks` 作为 bench root,`CannCaseLoader` 只扫到选中的 case,
+而 case id(`level4/gqa_5`)、input_shape、dtype、`baseline_perf_us`/`t_hw_us` 与全量 loader
+完全一致。一个 job、一次构建、5 次 case 编译,不是 5 次 job。
+全量 job 仍然用官方 `task_dir`,一个字节都不动。
+
 两条约束让 scout 不会变成一种廉价的虚报方式。
 
-卡片必须声明自己这个 CANN-Bench build 的 case 过滤参数(`case_filter_flag`)。adapter 不猜
-厂商 CLI 合同;没有声明时,一个被要求缩小的 job 会被**拒绝**,而不是悄悄跑完 20 个 case 再
-用"4 个 case"的名义报回来。GQA 卡片现在把这个字段留空,因为这个 flag 还没在硬件上验证过。
+第一,`all`/`full`/`gate`/`ref`/`reference`/`confirm` 与不声明 `FK_CANN_CASES` 都还是完整
+declared set;`gpu_entry.sh` 的 gate task(`all`/`correctness`/`perf`/...)会主动 unset 继承来的
+`FK_CANN_CASES`,所以一个跑偏的环境变量不可能把 gate 缩小。未知 id、重复 id、写不出代表集的
+`scout` 一律 fail closed,不会“静默跑全量再用 4 个 case 的名义报回来”。报告里的 case 集如果和
+请求的不一致,adapter 直接报 harness error,不定价任何东西。
 
-scout 结果带着 `workload_scope` 进入 eval JSON,而 `loop/parse.py` 本来就拒绝任何带
+第二,scout 结果带着 `workload_scope` 进入 eval JSON,而 `loop/parse.py` 本来就拒绝任何带
 `workload_scope` 的读数作为 gate。这里复用的是 CuTe DSL group card 已经在用的那一条守卫,
 不是另写一条——另写一条就会和它漂移。所以 scout 对 teacher 是证据,对 gate 永远不是。
+
+teacher/recon 侧的入口只有一个:`notes/experiment.json` 里写 `"cases"`。
+`skills/ascend-profile/ascend_probe.py` 把它翻成 `FK_CANN_CASES` 传给 evaluator,
+并同时把 `FK_CANN_EVAL_BUDGET` 设成比自己 timeout 早 60 秒。scout 实验**不会**打印
+`PROBE PASS`:它打印 `PROBE SCOUT` 和带 `"certifies": false` 的 `ASCEND-PRICE-JSON`。
+一个 5-case 读数没有资格认证一个 lever,只有全量 gate 有。
+`bash gpu_entry.sh scout [ids]` 是同一条路的直调入口。
 
 ## 4. 下一次 campaign 的做法
 
@@ -107,8 +132,13 @@ scout 结果带着 `workload_scope` 进入 eval JSON,而 `loop/parse.py` 本来�
 `gqa_8`、`gqa_9`、`gqa_10` 这几个最差的 case 都在里面。
 
 **用 scout 定价,用全量验收。** 架构问题走 5-case scout job;只有要宣布一个 KEEP 或者过一个
-gate 的时候才付 20-case 的代价。这件事现在有机制支持了,但要先在硬件上确认
-`case_filter_flag`,并把它作为一条 KB 记录下来。
+gate 的时候才付 20-case 的代价。机制已经就位(`FK_CANN_CASES=scout` / `gpu_entry.sh scout` /
+probe spec 里的 `"cases"`),但要先在硬件上确认两件事:一次 scout job 的评测时间确实接近
+1/4,以及 `baseline_perf_us`/`t_hw_us` 与全量 loader 完全一致。确认之后写成一条 KB。
+
+三层代价阶梯,不要跳着用:最差的单 case(`"cases": "gqa_8"`,一次编译)用来快速否证一个
+猜想——它只能杀方向,不能证明方向;5-case scout(五次编译)给一个还想活下去的架构决策定价;
+20-case gate 才是宣布 KEEP 的地方。前面两层都是“买/杀下一次全量”的输入,不是替代品。
 
 **进 20-case 之前先做单 case 代价拆解。** 用官方 `kernel_details` 在一个代表 case 上确认瓶颈
 在 QK、softmax、PV 还是搬运。按已认证的 `pypto-dynamic-execution`,一次 PyPTO 调用对应多个
@@ -129,8 +159,13 @@ msprof task row,三行合计约为 compute row 的 2.35 到 2.6 倍,所以读的
 
 特化粒度还是 20。这一轮只是让缩小 job 成为可能,并没有改 kernel。
 
-`case_filter_flag` 还是空的,所以 scout 在硬件上还跑不起来。这是故意的:
-填一个没验证过的 flag,比留空更糟。
+scout 改的是 job 的 case 集,没改 PyPTO 的 JIT 键:一次 scout job 之内,5 个 case 仍然是
+5 次编译。跨 job 的编译缓存能不能复用,没有硬件证据,这里不声称。
+
+`baseline_perf_us`/`t_hw_us` 的等价性只在 CPU 上用官方 loader 验证过(隔离 root 与全量 root
+逐字段相等);昇腾机上还要再核对一次真实 `metadata/<hardware>.json`。这是唯一的机制性风险:
+如果某台机器的 baseline 不在 `tasks/metadata` 下,隔离 root 会拿不到 baseline,scout 的
+`speedup` 会退化成缺失——adapter 不会伪造它。
 
 cost 只有墙钟。编译和设备的占比要靠一个认证过的编译钩子,现在没有。
 

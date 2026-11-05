@@ -68,6 +68,10 @@ def test_timing_basis_must_match_the_strategy_that_produces_it():
         {"timing_basis": "cann_trace_view", "perf_metric_strategy": "kernel_details"})
     assert problems and "perf_metric_strategy" in problems[0]
     assert profiling.timing_basis_problems({"timing_basis": "msprof_task_rows"})
+    # Omitted basis follows the strategy, just as the card-side resolver does.
+    assert profiling.timing_basis_problems({"perf_metric_strategy": "kernel_details"}) == []
+    assert profiling.configured_timing_basis(
+        {"perf_metric_strategy": "kernel_details"}) == "cann_kernel_details"
 
 
 def test_control_and_execution_backends_are_cross_checked_both_ways():
@@ -77,6 +81,8 @@ def test_control_and_execution_backends_are_cross_checked_both_ways():
     # And the direction that rejected evidence the job did collect.
     assert profiling.card_backend_problem({"profiler_backend": "msprof"}, "cann_trace_view")
     assert profiling.card_backend_problem({"profiler_backend": "msprof"}, "msprof") is None
+    assert profiling.card_backend_problem({"profiler_backend": "auto"}, "msprof") is None
+    assert profiling.card_backend_problem({}, "msprof") is None
 
 
 def test_every_shipped_pypto_card_declares_one_consistent_measurement():

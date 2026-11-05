@@ -1,38 +1,17 @@
-"""Explicit profiler routing and evidence-channel validation.
-
-Two axes that look alike and are not. The *collection backend* is the tool a job
-runs (``msprof`` exports task rows; ``cann_trace_view`` reads only what the
-official report already carries). The *timing basis* is the window a reading is
-measured in (``cann_trace_view`` AI-Core E2E, ``cann_kernel_details`` kernel-only).
-A card may collect msprof and still time on trace_view -- every PyPTO card this
-repo generates does exactly that -- so one name cannot stand for both.
-
-Keeping them apart is what the channel validator depends on: ``[VERIFY:
-msprof-direct]`` is discharged by the *collection* backend, not by the window the
-gate is timed in. Collapsing the two made the default PyPTO backend
-``cann_trace_view``, which rejects the msprof channels that ``meta/pypto/``
-instructs the teacher to cite -- recon then re-prompted to exhaustion and the
-meta layer stopped with no measurement at fault.
-"""
+"""Explicit profiler routing and evidence-channel validation."""
 from __future__ import annotations
 
 import re
 
 BACKENDS = ("ncu", "msprof", "cann_trace_view", "none")
-CHANNELS = {
-    "ncu": {"ncu-direct", "ncu-derived", "sass-derived"},
-    "msprof": {"msprof-direct", "msprof-derived", "cann-trace-view"},
-    "cann_trace_view": {"cann-trace-view"},
-    "none": set(),
-}
+# The default PyPTO evidence channel. Kept equal to the card adapter's
+# ascend_profiler.DEFAULT_PROFILER_BACKEND: the control plane validates the same
+# routing the frozen card will execute (tests/test_ascend_evidence.py holds it).
+PYPTO_DEFAULT_BACKEND = "msprof"
+ASCEND_BACKENDS = (PYPTO_DEFAULT_BACKEND, "cann_trace_view")
 
-# Ascend collection backends, in the order a card should prefer them: msprof is a
-# strict superset of what trace_view answers, so it is the PyPTO default.
-ASCEND_BACKENDS = ("msprof", "cann_trace_view")
-
-# A timing basis is a window, not a tool. Each one is readable only from the
-# official report the matching ``--perf-metric-strategy`` produced, so the pair is
-# a single declaration with two spellings and both halves must agree.
+# A timing basis is a window, not a collection tool. Each basis is readable only
+# from the official report produced by its matching CANN-Bench strategy.
 TIMING_BASES = {
     "cann_trace_view": "trace_view",
     "cann_kernel_details": "kernel_details",
@@ -40,12 +19,34 @@ TIMING_BASES = {
 DEFAULT_TIMING_BASIS = "cann_trace_view"
 
 
+def configured_backend(config: dict) -> str:
+    """Resolve a card's backend, including an omitted or ``auto`` value."""
+    configured = str(config.get("profiler_backend") or "auto").strip().lower()
+    return PYPTO_DEFAULT_BACKEND if configured == "auto" else configured
+
+
+def configured_timing_basis(config: dict) -> str:
+    """Resolve the window the card will read when its optional basis is omitted."""
+    basis = str(config.get("timing_basis") or "").strip().lower()
+    if basis:
+        return basis
+    strategy = str(config.get("perf_metric_strategy") or "").strip().lower()
+    return "cann_kernel_details" if strategy == "kernel_details" else DEFAULT_TIMING_BASIS
+
+
+CHANNELS = {
+    "ncu": {"ncu-direct", "ncu-derived", "sass-derived"},
+    "msprof": {"msprof-direct", "msprof-derived", "cann-trace-view"},
+    "cann_trace_view": {"cann-trace-view"},
+    "none": set(),
+}
+
+
 def backend_for(language: str, configured: str = "auto", ncu_available: bool = True) -> str:
     if configured == "auto":
-        # msprof, not cann_trace_view: every PyPTO card generated here collects
-        # msprof, and the PyPTO prompts cite msprof-direct/-derived. Defaulting to
-        # the narrower backend fails closed against the harness's own prompts.
-        return ASCEND_BACKENDS[0] if language == "pypto" else ("ncu" if ncu_available else "none")
+        if language == "pypto":
+            return PYPTO_DEFAULT_BACKEND
+        return "ncu" if ncu_available else "none"
     if configured not in BACKENDS:
         raise ValueError(f"profiler_backend must be one of {BACKENDS}, got {configured!r}")
     if language == "pypto" and configured == "ncu":
@@ -58,17 +59,10 @@ def backend_for(language: str, configured: str = "auto", ncu_available: bool = T
 
 
 def timing_basis_problems(config: dict) -> list[str]:
-    """Why one card's ``eval/cann_task.json`` cannot be measured, or an empty list.
-
-    The adapter reads the window named by ``timing_basis`` out of the report that
-    ``perf_metric_strategy`` asked the official evaluator for. A mismatched pair
-    produces a report with no such field, which is a *measurement* fault -- the
-    one that invalidated the first GQA M0 gate -- so it is caught here, at launch
-    and at card generation, rather than surfacing later as a kernel verdict.
-    """
+    """Why one card's declared timing window cannot be read from its report."""
     problems = []
-    basis = str(config.get("timing_basis") or DEFAULT_TIMING_BASIS)
-    strategy = str(config.get("perf_metric_strategy") or TIMING_BASES[DEFAULT_TIMING_BASIS])
+    basis = configured_timing_basis(config)
+    strategy = str(config.get("perf_metric_strategy") or TIMING_BASES[DEFAULT_TIMING_BASIS]).strip().lower()
     if basis not in TIMING_BASES:
         problems.append(f"timing_basis must be one of {sorted(TIMING_BASES)}, got {basis!r}")
     elif TIMING_BASES[basis] != strategy:
@@ -76,23 +70,15 @@ def timing_basis_problems(config: dict) -> list[str]:
             f"timing_basis {basis!r} is read from a {TIMING_BASES[basis]!r} report, but "
             f"perf_metric_strategy is {strategy!r}: the field the adapter reads would be "
             f"absent from the official report")
-    backend = str(config.get("profiler_backend") or ASCEND_BACKENDS[0])
+    backend = configured_backend(config)
     if backend not in ASCEND_BACKENDS:
         problems.append(f"profiler_backend must be one of {list(ASCEND_BACKENDS)}, got {backend!r}")
     return problems
 
 
 def card_backend_problem(config: dict, loop_backend: str) -> str | None:
-    """Why the control side's profiler backend disagrees with the card's, or None.
-
-    ``loop.toml [loop].profiler_backend`` decides which ``[VERIFY: ...]`` channels
-    the milestone and recon gates accept; ``eval/cann_task.json
-    profiler_backend`` decides which tool the job actually runs. Nothing read both
-    before, so either direction could pass every check and still be wrong: a
-    control side set to ``msprof`` admits gate lines no job collects evidence for,
-    and one set to ``cann_trace_view`` rejects the evidence the job did collect.
-    """
-    card = str(config.get("profiler_backend") or ASCEND_BACKENDS[0])
+    """Why the control-side and execution-side evidence backends disagree."""
+    card = configured_backend(config)
     if card not in ASCEND_BACKENDS:
         return (f"eval/cann_task.json profiler_backend is {card!r}; expected one of "
                 f"{list(ASCEND_BACKENDS)}")
@@ -106,8 +92,9 @@ def card_backend_problem(config: dict, loop_backend: str) -> str | None:
 
 def evidence_digest(profiler: dict) -> dict:
     """Bound prompt size; full CSV/log evidence remains in the job archive."""
-    out = {k: profiler[k] for k in ("backend", "timing_basis", "status", "reason", "source",
-                                    "unavailable", "cases") if k in profiler}
+    out = {k: profiler[k] for k in ("backend", "timing_basis", "status", "reason",
+                                   "source", "unavailable", "cases")
+           if k in profiler}
     if "tables" in profiler:
         out["tables"] = [{k: table[k] for k in
                           ("file", "source", "status", "scope", "kernels", "total_recorded_us")
@@ -116,10 +103,6 @@ def evidence_digest(profiler: dict) -> dict:
 
 
 def benchmark_digest(official: dict) -> dict:
-    # ``cost`` rides the digest so the outer loop can see a compile-bound campaign:
-    # a job that spent its budget in JIT and a job that spent it on device both
-    # come back as one wall-clock number otherwise, and the teacher cannot tell a
-    # slow kernel from an unaffordable one.
     out = {k: official[k] for k in ("tasks_version", "commit", "environment", "scores",
                                    "overall_score", "comparison", "job", "cost",
                                    "timing_basis", "case_scope") if k in official}
