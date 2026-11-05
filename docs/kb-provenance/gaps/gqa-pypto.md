@@ -1,0 +1,16 @@
+# Out-of-run gap queue (recon-table rows this run did not verify: gqa-pypto)
+
+Rows with VERIFY `none` have no machine-read acceptance; rows that say "may not be expressible" without an `[EXPR:]` ladder verdict are unverified guesses; rows with VERIFY `inferred` are structural readings whose discriminating observation gave no positive reading (the two readings are byte-identical). None of the three may be used as a conclusion. These rows are the recon's reading of the reference's structure (narrated provenance) and **do not enter hw_kb**: only a probe-certified recipe carries knowledge across runs; to verify one, start a separate probe, with the evidence under `docs/kb-provenance/`.
+
+- **Score-matrix residency** = on-chip per tile; never materialized in HBM — VERIFY `inferred`; notes: probe job 1793799356 prices the case-9 ablation directly (inferred: the discriminating observation gave no positive reading (readings a byte/count identity cannot separate))
+- **KV residency across the GQA group** = paid once per KV head, reused across its query heads — VERIFY `inferred`; notes: arithmetic bound is decisive for the decode regime (inferred: the discriminating observation gave no positive reading (readings a byte/count identity cannot separate))
+- **Prefill path, causal** = skips between 9.5 % and 50 % of the masked square — VERIFY `inferred`; notes: fraction and granularity not measurable from timing (D5) (inferred: the discriminating observation gave no positive reading (readings a byte/count identity cannot separate))
+- **Softmax** = in-kernel, online/rescaled, vector unit — VERIFY `inferred`; notes: exact algorithm not observed (inferred: the discriminating observation gave no positive reading (readings a byte/count identity cannot separate))
+- **Softmax accumulation dtype** = fp32 (conventional) — VERIFY `none`; notes: cannot be read from timing (no machine-read verification in this run)
+- **scale** = default 1/√D, or explicit `0.08838` somewhere in the set — VERIFY `none`; notes: scalar multiplier; no observable time effect (no machine-read verification in this run)
+- **KV tile** = 128–256 tokens `[ESTIMATE]` — VERIFY `none`; notes: no buffer counter exists on this target (no machine-read verification in this run)
+- **Q / output tile** = unknown — VERIFY `none`; notes: do not assume (no machine-read verification in this run)
+- **UB / L1 split and double-buffering depth** = unknown — VERIFY `none`; notes: source-free inference must not invent it (no machine-read verification in this run)
+- **DMA/compute overlap schedule** = unknown — VERIFY `none` (no machine-read verification in this run)
+- **KV reuse mechanism** = query-head blocks re-read KV from L2 rather than sharing it in-block — VERIFY `inferred`; notes: survives only for the small-footprint prefill cases, where KV bytes are negligible against compute (inferred: the discriminating observation gave no positive reading (readings a byte/count identity cannot separate))
+- **Materialized score matrix in HBM (cases 8, 10)** = rejected — VERIFY `inferred`; notes: arithmetic on measured time + measured stream rate (inferred: the discriminating observation gave no positive reading (readings a byte/count identity cannot separate))

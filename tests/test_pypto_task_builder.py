@@ -48,7 +48,7 @@ def test_generic_level4_task_is_complete_and_sealable(tmp_path):
     assert 'NotImplementedError' in (task.leaderboard.card / 'kernel.py').read_text()
     card = json.loads((task.leaderboard.card / 'eval/cann_task.json').read_text())
     ref = json.loads((task.leaderboard.ref / 'eval/cann_task.json').read_text())
-    assert card['timing_basis'] == 'cann_trace_view'
+    assert card['timing_basis'] == 'cann_kernel_details'
     assert ref['timing_basis'] == 'cann_kernel_details'
     assert card['perf_metric_strategy'] == ref['perf_metric_strategy'] == 'kernel_details'
     from forgekernel.cannref import seal_tree

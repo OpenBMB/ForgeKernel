@@ -104,7 +104,8 @@ def main(argv=None):
     put(card, 'eval/cann_task.json', json.dumps({
         'operator': args.operator, 'task_dir': task_dir, 'source_dir': '.',
         'warmup': 3, 'repeat': 5, 'profiler_backend': 'msprof',
-        'perf_metric_strategy': 'kernel_details', 'timing_basis': 'cann_trace_view'}, indent=2))
+        'perf_metric_strategy': 'kernel_details',
+        'timing_basis': 'cann_kernel_details'}, indent=2))
     put(ref, 'eval/cann_task.json', json.dumps({
         'operator': args.operator, 'task_dir': task_dir, 'source_dir': 'src',
         'warmup': 3, 'repeat': 5, 'profiler_backend': 'msprof',

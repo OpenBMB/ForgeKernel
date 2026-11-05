@@ -14,6 +14,16 @@
 
 ## 0. 结论
 
+> **2026-11-04 更新**：本文件保留为初始 gap 分析。后续实测已补齐官方字段/
+> 原始报告、真实 msprof、Ascend 专用 prompt/KB routing、密封参照晋升、
+> 确认协议和新的 probe-certified recipes。全 DeepSeek 的 SwiGlu campaign
+> 已完成 `1.20165×` 最终确认（3 student + 3 fresh ref jobs，cross-job）。
+> Level-4 GQA 参照和 M0 正确性已完成，但候选仍约 40.24 ms vs 强库
+> 0.06116 ms，未达到论文同级性能。严格论文复现仍不可能：本机为
+> Ascend950PR / CANN-Bench 2.0.0 / 本地公开评分，论文为 Ascend910C /
+> CANN-Bench 1.1.2 / hosted scoring / 8 个 Level-4 算子。
+> 当前准确状态见 `docs/ascend-agent-validation.md`。
+
 当前实现已经验证了：
 
 ```text

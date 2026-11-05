@@ -83,6 +83,66 @@ For a genuinely all-DeepSeek experiment use `forge new tasks/<op>`, not a resume
 of an affected native-provider snapshot. Runtime-only source-mode measurements
 must not be presented as independently rebuilt blackbox performance.
 
+## Latest all-DeepSeek campaign (2026-11-04)
+
+After the routing correction, two fresh runs were created from current task cards:
+
+- SwiGlu: `.artifacts/swiglu-pypto_261104-210250-b244/`
+- Level-4 GQA: `.artifacts/gqa-pypto_261104-210250-eee5/`
+
+Both snapshots record provider `deepseek`, teacher/student
+`deepseek-flash[1m]`, effort `max`. The live agent processes were checked via
+`/proc/<pid>/environ`: `ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic`,
+`ANTHROPIC_MODEL=deepseek-flash[1m]`, `FK_PROVIDER_KEY_ENV=API_KEY`.
+
+### SwiGlu: target reached and independently confirmed
+
+- Reference: **0.0676195504 ms**, 20/20 public cases.
+- M0 implementation: 20/20 correct, **0.0554254601 ms**, KEEP.
+- Same-period check: student **0.0549932978 ms** vs fresh reference
+  **0.0645315143 ms** (3 jobs).
+- Final confirmation: **3/3 student jobs + 3/3 fresh-reference jobs**;
+  student **0.0547383919 ms**, reference **0.0657764105 ms**,
+  ratio **1.2016503986×** (cross-job median-vs-median).
+- Run status: `done`, `stop=target`, `target_met=true`; report and best kernel
+  were generated. Official compilation/function/performance score at the
+  confirmed SHA: **60.9994** (public local scoring only).
+
+This is a valid all-DeepSeek campaign result on CANN-Bench 2.0.0 / Ascend950PR.
+It is still a cross-job comparison, not CUDA-style paired timing.
+
+### Level-4 GQA: correct but far from the strong library
+
+- Huawei `FusedInferAttentionScore` reference: **0.0611635335 ms**, 20/20.
+- The student passed its own 20-case smoke and then M0 correctness, but the
+  first official gate was invalidated by an inconsistent card setting:
+  `perf_metric_strategy=kernel_details` while the adapter demanded
+  `trace_view.aicore_e2e`. The official report had correct 20/20 cases and
+  `op_times.device_kernels`, but no trace-view block.
+- Fixed by declaring `timing_basis=cann_kernel_details` whenever the card
+  requests `kernel_details`; the original REVERT remains in the trajectory and
+  the harness change is explicitly flagged by the resume guard.
+- Re-run M0 gate: **20/20 correct, device geomean 40.2399959 ms**, KEEP.
+  This is about 658× slower than the strong library and must not be presented as
+  a performance success.
+- Outer M0 audit diagnosed `G3` (hardware interface), not a target-reached
+  stop. The campaign then certified and applied new KB recipes, fixed several
+  numerical failures, and is still iterating as of this document update.
+
+New probe-certified recipes produced by that campaign:
+
+- `pypto-operand-tile-construction` — probe 8/8 PASS, max error 5.91913e-08,
+  job `1793825465`.
+- `pypto-dynamic-execution` — probe PASS, max error 6.14766e-06, job
+  `1793835682`; maps one PyPTO call to two `AI_CPU` control rows plus one
+  `MIX_AIC` compute row and forbids summing them as kernel time.
+- `device_floor_sandwich` — device per-launch floor ≈0.5–1.2 µs, job
+  `1793791124`; dead kineto/msprof export channels recorded.
+
+GQA also generated an out-of-run gap queue at
+`docs/kb-provenance/gaps/gqa-pypto.md`; its rows are explicitly unverified and
+must not enter `hw_kb` without a probe.
+
 ## Real-device evidence
 
 ### M1 + outer loop
@@ -150,14 +210,15 @@ path/checksum handling, no-NCU routing, verification-channel validation, teacher
 model selection, sealed promotion, final-target rejection, cross-job noise,
 Level-4 task generation and independent experiment edit checks.
 
-Last full run before the routing correction: **2085 passed**. The two initial failures were controller-only
+Latest full run after the routing correction: **2094 passed**. The two initial failures were controller-only
 missing `torch`; installing the documented test dependency did not weaken or
 skip any test.
 
 ## Remaining distinction from the paper
 
-This work validates mechanisms and harness behavior on a different NPU and
-benchmark version. It does not reproduce the paper's eight-operator 910C hosted
-score table, hidden cases or model-controlled experimental comparison. Those
-are explicit protocol differences, not gaps that can be closed by re-labeling a
-local score.
+Strict paper alignment is **not achievable on this machine as configured**: the
+paper's Ascend results are CANN-Bench 1.1.2 on Ascend910C with hosted scoring on
+eight Level-4 operators; this environment is CANN-Bench 2.0.0 on Ascend950PR
+with local public cases. The only honest claims are capability results — SwiGlu
+reaches and confirms its campaign target; GQA is correct at M0 but remains far
+from the strong library. No local score is relabeled as the paper's result.
