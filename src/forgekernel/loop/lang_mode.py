@@ -28,6 +28,7 @@ from pathlib import Path
 
 MODE_CUTEDSL = "cutedsl"
 MODE_CUDA = "cuda"
+MODE_PYPTO = "pypto"
 
 # The languages whose student writes a CUDA C++ kernel file the card builds with
 # nvcc. cuda-sol is the leaderboard cuda_cpp solution (one .cu with its own
@@ -36,23 +37,30 @@ MODE_CUDA = "cuda"
 CUDA_LANGUAGES = frozenset({"cuda-sol"})
 CUDA_KERNEL_SUFFIXES = (".cu",)
 
-KB_ROOT = {MODE_CUTEDSL: "hw_kb/cutedsl", MODE_CUDA: "hw_kb/cuda"}
+KB_ROOT = {MODE_CUTEDSL: "hw_kb/cutedsl", MODE_CUDA: "hw_kb/cuda",
+           MODE_PYPTO: "hw_kb/pypto"}
 # Under the shared docs/kb-provenance/ root, so every "startswith docs/kb-provenance/"
 # listing (harvest leftovers, publish) still covers it, while an entry name the two
 # KBs share (gpu_probe_ladder, ...) keeps one provenance file per KB.
-PROVENANCE_SUBDIR = {MODE_CUTEDSL: "", MODE_CUDA: "cuda"}
-PROMPT_OVERLAY_DIR = {MODE_CUTEDSL: None, MODE_CUDA: "cuda"}
+PROVENANCE_SUBDIR = {MODE_CUTEDSL: "", MODE_CUDA: "cuda", MODE_PYPTO: "pypto"}
+PROMPT_OVERLAY_DIR = {MODE_CUTEDSL: None, MODE_CUDA: "cuda", MODE_PYPTO: "pypto"}
 
 DEFAULT_CUDA_LANGUAGE = "cuda-sol"
 
 
 def mode_of(language: str | None) -> str:
-    """The mode a loop language belongs to (anything not CUDA is the DSL mode)."""
+    """The prompt/KB family for one loop language."""
+    if language == MODE_PYPTO:
+        return MODE_PYPTO
     return MODE_CUDA if language in CUDA_LANGUAGES else MODE_CUTEDSL
 
 
 def is_cuda(language: str | None) -> bool:
     return mode_of(language) == MODE_CUDA
+
+
+def is_pypto(language: str | None) -> bool:
+    return mode_of(language) == MODE_PYPTO
 
 
 def is_cuda_kernel_file(kernel_file: str | Path | None) -> bool:
@@ -80,8 +88,14 @@ def owns_provenance(rel_path: str, language: str | None) -> bool:
     """Whether a repo-relative ``docs/kb-provenance/...`` path belongs to the
     language's mode: the CUDA mode owns ``docs/kb-provenance/cuda/``, the DSL mode
     everything else under the root (the shared per-op ``gaps/`` archive included)."""
-    in_cuda = str(rel_path).startswith(f"docs/kb-provenance/{PROVENANCE_SUBDIR[MODE_CUDA]}/")
-    return in_cuda if is_cuda(language) else not in_cuda
+    path = str(rel_path)
+    in_cuda = path.startswith("docs/kb-provenance/cuda/")
+    in_pypto = path.startswith("docs/kb-provenance/pypto/")
+    if is_pypto(language):
+        return in_pypto
+    if is_cuda(language):
+        return in_cuda
+    return not in_cuda and not in_pypto
 
 
 def prompt_path(meta_dir: Path, name: str, language: str | None) -> Path:

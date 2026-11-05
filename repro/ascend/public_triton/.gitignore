@@ -1,0 +1,5 @@
+/build/
+/dist/
+/cann_bench.egg-info/
+/_compile.log
+__pycache__/

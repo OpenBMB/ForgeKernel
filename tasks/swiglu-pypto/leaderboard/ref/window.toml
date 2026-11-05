@@ -1,0 +1,9 @@
+schema_version = 1
+[reference]
+window = "CANN-Bench public SwiGlu reference, one call per AI-Core E2E sample"
+inputs = ["input"]
+outputs = ["output"]
+[student]
+window = "cann_bench.swi_glu, one call per AI-Core E2E sample"
+inputs = ["input"]
+outputs = ["output"]

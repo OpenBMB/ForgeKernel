@@ -1,0 +1,552 @@
+{
+  "schema": 1,
+  "suite": "cann-bench",
+  "definition": {
+    "name": "SwiGlu",
+    "axes": {},
+    "inputs": {
+      "input": {
+        "dtype": "tensor"
+      }
+    },
+    "outputs": {
+      "output": {
+        "dtype": "tensor"
+      }
+    },
+    "reference": "CANN-Bench golden.py"
+  },
+  "workload": {
+    "uuid": "level1/swi_glu_1",
+    "axes": {
+      "case_id": "1",
+      "input_shape": [
+        [
+          1024,
+          2048
+        ]
+      ],
+      "dtype": [
+        "float16"
+      ],
+      "attrs": {
+        "dim": -1
+      }
+    },
+    "input_groups": []
+  },
+  "group": [
+    {
+      "index": 0,
+      "name": "level1/swi_glu_1",
+      "workload": {
+        "uuid": "level1/swi_glu_1",
+        "axes": {
+          "case_id": "1",
+          "input_shape": [
+            [
+              1024,
+              2048
+            ]
+          ],
+          "dtype": [
+            "float16"
+          ],
+          "attrs": {
+            "dim": -1
+          }
+        },
+        "input_groups": []
+      }
+    },
+    {
+      "index": 1,
+      "name": "level1/swi_glu_2",
+      "workload": {
+        "uuid": "level1/swi_glu_2",
+        "axes": {
+          "case_id": "2",
+          "input_shape": [
+            [
+              2048,
+              4096
+            ]
+          ],
+          "dtype": [
+            "float32"
+          ],
+          "attrs": {
+            "dim": -1
+          }
+        },
+        "input_groups": []
+      }
+    },
+    {
+      "index": 2,
+      "name": "level1/swi_glu_3",
+      "workload": {
+        "uuid": "level1/swi_glu_3",
+        "axes": {
+          "case_id": "3",
+          "input_shape": [
+            [
+              4096,
+              8192
+            ]
+          ],
+          "dtype": [
+            "bfloat16"
+          ],
+          "attrs": {
+            "dim": -1
+          }
+        },
+        "input_groups": []
+      }
+    },
+    {
+      "index": 3,
+      "name": "level1/swi_glu_4",
+      "workload": {
+        "uuid": "level1/swi_glu_4",
+        "axes": {
+          "case_id": "4",
+          "input_shape": [
+            [
+              8192,
+              16384
+            ]
+          ],
+          "dtype": [
+            "float16"
+          ],
+          "attrs": {
+            "dim": 0
+          }
+        },
+        "input_groups": []
+      }
+    },
+    {
+      "index": 4,
+      "name": "level1/swi_glu_5",
+      "workload": {
+        "uuid": "level1/swi_glu_5",
+        "axes": {
+          "case_id": "5",
+          "input_shape": [
+            [
+              2039,
+              65520
+            ]
+          ],
+          "dtype": [
+            "float32"
+          ],
+          "attrs": {
+            "dim": -1
+          }
+        },
+        "input_groups": []
+      }
+    },
+    {
+      "index": 5,
+      "name": "level1/swi_glu_6",
+      "workload": {
+        "uuid": "level1/swi_glu_6",
+        "axes": {
+          "case_id": "6",
+          "input_shape": [
+            [
+              1022,
+              2047
+            ]
+          ],
+          "dtype": [
+            "bfloat16"
+          ],
+          "attrs": {
+            "dim": 0
+          }
+        },
+        "input_groups": []
+      }
+    },
+    {
+      "index": 6,
+      "name": "level1/swi_glu_7",
+      "workload": {
+        "uuid": "level1/swi_glu_7",
+        "axes": {
+          "case_id": "7",
+          "input_shape": [
+            [
+              1009,
+              2016
+            ]
+          ],
+          "dtype": [
+            "float16"
+          ],
+          "attrs": {
+            "dim": -1
+          }
+        },
+        "input_groups": []
+      }
+    },
+    {
+      "index": 7,
+      "name": "level1/swi_glu_8",
+      "workload": {
+        "uuid": "level1/swi_glu_8",
+        "axes": {
+          "case_id": "8",
+          "input_shape": [
+            [
+              1538,
+              1537
+            ]
+          ],
+          "dtype": [
+            "float32"
+          ],
+          "attrs": {
+            "dim": 0
+          }
+        },
+        "input_groups": []
+      }
+    },
+    {
+      "index": 8,
+      "name": "level1/swi_glu_9",
+      "workload": {
+        "uuid": "level1/swi_glu_9",
+        "axes": {
+          "case_id": "9",
+          "input_shape": [
+            [
+              363,
+              367,
+              14
+            ]
+          ],
+          "dtype": [
+            "bfloat16"
+          ],
+          "attrs": {
+            "dim": -1
+          }
+        },
+        "input_groups": []
+      }
+    },
+    {
+      "index": 9,
+      "name": "level1/swi_glu_10",
+      "workload": {
+        "uuid": "level1/swi_glu_10",
+        "axes": {
+          "case_id": "10",
+          "input_shape": [
+            [
+              2049,
+              1024
+            ]
+          ],
+          "dtype": [
+            "float16"
+          ],
+          "attrs": {
+            "dim": 1
+          }
+        },
+        "input_groups": []
+      }
+    },
+    {
+      "index": 10,
+      "name": "level1/swi_glu_11",
+      "workload": {
+        "uuid": "level1/swi_glu_11",
+        "axes": {
+          "case_id": "11",
+          "input_shape": [
+            [
+              3,
+              7,
+              13,
+              1018
+            ]
+          ],
+          "dtype": [
+            "float32"
+          ],
+          "attrs": {
+            "dim": -1
+          }
+        },
+        "input_groups": []
+      }
+    },
+    {
+      "index": 11,
+      "name": "level1/swi_glu_12",
+      "workload": {
+        "uuid": "level1/swi_glu_12",
+        "axes": {
+          "case_id": "12",
+          "input_shape": [
+            [
+              1000003,
+              2
+            ]
+          ],
+          "dtype": [
+            "bfloat16"
+          ],
+          "attrs": {
+            "dim": 1
+          }
+        },
+        "input_groups": []
+      }
+    },
+    {
+      "index": 12,
+      "name": "level1/swi_glu_13",
+      "workload": {
+        "uuid": "level1/swi_glu_13",
+        "axes": {
+          "case_id": "13",
+          "input_shape": [
+            [
+              11,
+              13,
+              16,
+              67
+            ]
+          ],
+          "dtype": [
+            "float32"
+          ],
+          "attrs": {
+            "dim": 2
+          }
+        },
+        "input_groups": []
+      }
+    },
+    {
+      "index": 13,
+      "name": "level1/swi_glu_14",
+      "workload": {
+        "uuid": "level1/swi_glu_14",
+        "axes": {
+          "case_id": "14",
+          "input_shape": [
+            [
+              3,
+              7,
+              11,
+              13,
+              1012
+            ]
+          ],
+          "dtype": [
+            "float16"
+          ],
+          "attrs": {
+            "dim": -1
+          }
+        },
+        "input_groups": []
+      }
+    },
+    {
+      "index": 14,
+      "name": "level1/swi_glu_15",
+      "workload": {
+        "uuid": "level1/swi_glu_15",
+        "axes": {
+          "case_id": "15",
+          "input_shape": [
+            [
+              512,
+              4096
+            ]
+          ],
+          "dtype": [
+            "float32"
+          ],
+          "attrs": {
+            "dim": -1
+          }
+        },
+        "input_groups": []
+      }
+    },
+    {
+      "index": 15,
+      "name": "level1/swi_glu_16",
+      "workload": {
+        "uuid": "level1/swi_glu_16",
+        "axes": {
+          "case_id": "16",
+          "input_shape": [
+            [
+              254,
+              16383
+            ]
+          ],
+          "dtype": [
+            "bfloat16"
+          ],
+          "attrs": {
+            "dim": 0
+          }
+        },
+        "input_groups": []
+      }
+    },
+    {
+      "index": 16,
+      "name": "level1/swi_glu_17",
+      "workload": {
+        "uuid": "level1/swi_glu_17",
+        "axes": {
+          "case_id": "17",
+          "input_shape": [
+            [
+              4096,
+              1023
+            ]
+          ],
+          "dtype": [
+            "float16"
+          ],
+          "attrs": {
+            "dim": 0
+          }
+        },
+        "input_groups": []
+      }
+    },
+    {
+      "index": 17,
+      "name": "level1/swi_glu_18",
+      "workload": {
+        "uuid": "level1/swi_glu_18",
+        "axes": {
+          "case_id": "18",
+          "input_shape": [
+            [
+              2,
+              1023,
+              4096
+            ]
+          ],
+          "dtype": [
+            "float32"
+          ],
+          "attrs": {
+            "dim": -1
+          }
+        },
+        "input_groups": []
+      }
+    },
+    {
+      "index": 18,
+      "name": "level1/swi_glu_19",
+      "workload": {
+        "uuid": "level1/swi_glu_19",
+        "axes": {
+          "case_id": "19",
+          "input_shape": [
+            [
+              4,
+              510,
+              4097
+            ]
+          ],
+          "dtype": [
+            "bfloat16"
+          ],
+          "attrs": {
+            "dim": 1
+          }
+        },
+        "input_groups": []
+      }
+    },
+    {
+      "index": 19,
+      "name": "level1/swi_glu_20",
+      "workload": {
+        "uuid": "level1/swi_glu_20",
+        "axes": {
+          "case_id": "20",
+          "input_shape": [
+            [
+              2,
+              3,
+              17,
+              512,
+              100
+            ]
+          ],
+          "dtype": [
+            "float32"
+          ],
+          "attrs": {
+            "dim": -1
+          }
+        },
+        "input_groups": []
+      }
+    }
+  ],
+  "meta_workloads": [
+    "level1/swi_glu_1",
+    "level1/swi_glu_2",
+    "level1/swi_glu_3",
+    "level1/swi_glu_4",
+    "level1/swi_glu_5",
+    "level1/swi_glu_6",
+    "level1/swi_glu_7",
+    "level1/swi_glu_8",
+    "level1/swi_glu_9",
+    "level1/swi_glu_10",
+    "level1/swi_glu_11",
+    "level1/swi_glu_12",
+    "level1/swi_glu_13",
+    "level1/swi_glu_14",
+    "level1/swi_glu_15",
+    "level1/swi_glu_16",
+    "level1/swi_glu_17",
+    "level1/swi_glu_18",
+    "level1/swi_glu_19",
+    "level1/swi_glu_20"
+  ],
+  "dps": false,
+  "kernel_file": "kernel.py",
+  "entry": "swi_glu",
+  "reference_impl": {
+    "kind": "cann_bench_reference",
+    "name": "public PyPTO reference, measured in a separate tree"
+  },
+  "time_reference": false,
+  "timing": "device",
+  "tolerance": {
+    "outputs": {},
+    "rule": "CANN-Bench MERE/MARE per public case"
+  },
+  "source": {
+    "task": "official-tasks 2.0.0",
+    "commit": "059cb61d41b279ad021160517bd2a5f6b7a05e01"
+  }
+}

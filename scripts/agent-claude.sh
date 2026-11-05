@@ -26,6 +26,8 @@ if [ -n "${FK_PROVIDER_KEY_ENV:-}" ]; then
     fi
     # claude reads the token from AUTH_TOKEN but refuses to start without API_KEY also set.
     export ANTHROPIC_API_KEY="$KEY" ANTHROPIC_AUTH_TOKEN="$KEY"
+    # An explicit API provider must not inherit a subscription/OAuth identity.
+    unset CLAUDE_CODE_OAUTH_TOKEN
 fi
 # The agent policy is delivered in the working directory, so nothing here changes it
 # (forge run names this script by its absolute path).

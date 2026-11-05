@@ -1,0 +1,11 @@
+{
+  "level": "level4",
+  "operator": "GQA",
+  "cases": "public",
+  "judge": "official golden.py",
+  "architecture_reference": "CANN library gqa_ref / npu_fused_infer_attention_score",
+  "student": "PyPTO authored kernel; vendor fused-attention calls forbidden",
+  "oracle_mode": "blackbox",
+  "cann_commit": "059cb61d41b279ad021160517bd2a5f6b7a05e01",
+  "paper_equivalence": "same operator family, NOT paper hardware/benchmark hosted reproduction"
+}

@@ -1,0 +1,12 @@
+loop.toml
+submit.local.toml
+.jobs/
+.exec/
+.cann_results/
+reports/
+build/
+dist/
+*.egg-info/
+__pycache__/
+*.pyc
+_compile.log

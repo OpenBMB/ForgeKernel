@@ -39,6 +39,7 @@ from forgekernel.loop.job_env import env_failure
 from forgekernel.loop import harness_guard, precision_gate
 from forgekernel.loop.kb_lint import lint_kb_dir
 from forgekernel.loop import lang_mode
+from forgekernel import arch as arch_mod
 from forgekernel.inner.trajectory import (
     GATE_WINDOW_DEFAULT,
     GATE_WINDOW_DEVICE,
@@ -221,7 +222,8 @@ class LoopContext:
     # Which hw_kb/<language>/<arch>/ tree this run reads AND writes -- see kb_read_dir. One
     # tree per architecture, no shared root (hw_kb/<language>/README.md): a recipe earned on
     # Hopper is not evidence about Blackwell, so a run sees its own tree only.
-    # From loop.toml [loop].kb_arch (or --kb-arch); "sm90" is the default.
+    # From loop.toml [loop].kb_arch (or --kb-arch); PyPTO defaults to the
+    # generic "ascend" tree when no exact variant is named.
     kb_arch: str = "sm90"
     # Which timing window every verdict reads: best, target stop, plateau, rollback
     # anchor, digest ranking. "device" (pipelined batch ≈ device time — the
@@ -325,6 +327,7 @@ class LoopContext:
     # loop.toml [loop] infeasible_min_diagnoses / --min-meta-before-infeasible.
     infeasible_min_diagnoses: int = 1
     ncu_retries: int = 2  # retry NCU when a passing kernel yields an empty profiler
+    profiler_backend: str = "auto"
     # LEVER PRICING ROUND (plateau diagnosis AND the M0 audit). Before the
     # teacher names a cause_class it designs N composable levers on the best tree
     # and the driver prices them in ONE job — base / +each / all / all-each — so
@@ -659,7 +662,7 @@ def kb_read_dir(ctx: LoopContext) -> Path:
     construction. ``ctx.kb_dir`` stays the root: ``{KB_DIR}/TEMPLATE.md`` and the
     harvest are per-KB, not per-architecture.
     """
-    return Path(ctx.kb_dir) / ctx.kb_arch
+    return arch_mod.resolve_kb_dir(Path(ctx.kb_dir), ctx.language, ctx.kb_arch)
 
 
 def _meta_prompt(ctx: LoopContext, name: str) -> Path:
@@ -915,6 +918,35 @@ def _prep_structural_stop(records) -> str | None:
         return "prep_unreported"
     if len(records) >= 2 and records[-2].verdict == "REVERT" and records[-2].error == last.error:
         return "prep_contract"
+    return None
+
+
+_MEASUREMENT_ERROR_PREFIX = "measurement unavailable: "
+
+
+def _measurement_error(measurement: dict) -> str:
+    """One configuration diagnostic for a card that did not produce its declared window."""
+    reason = measurement.get("reason") or "the official report carried no timing reading"
+    backend = measurement.get("backend") or "unknown"
+    basis = measurement.get("timing_basis") or "undeclared"
+    return (f"{_MEASUREMENT_ERROR_PREFIX}{reason} (backend={backend}, "
+            f"timing_basis={basis}); the card did not report its declared timing "
+            f"window — fix eval/cann_task.json / the bench, not the kernel")
+
+
+def _measurement_unavailable_stop(records) -> str | None:
+    """A configuration/measurement defect is structural, not a student failure.
+
+    The card says a declared timing window was not reported (its ``measurement``
+    block is unavailable). No kernel edit can produce that window, so the segment
+    stops on its first sighting: no reset (the tree was never shown wrong), no
+    REVERT streak, and no next student turn over the same broken harness.
+    """
+    if not records:
+        return None
+    last = records[-1]
+    if (last.measurement or {}).get("status") == "unavailable":
+        return "measurement_unavailable"
     return None
 
 
@@ -1751,6 +1783,10 @@ def _ncu_profiler(ctx: LoopContext, branch: str, *, correctness: bool) -> dict:
     yields no NCU legitimately, so it is not retried. Neither is a launch target that
     cannot start on the image (loop/job_env.py): the retry would replay the same
     import error, and the empty digest is the job's blindness, not the kernel's."""
+    from forgekernel.profiling import backend_for
+    if backend_for(getattr(ctx, "language", "cutedsl"),
+                   getattr(ctx, "profiler_backend", "auto")) != "ncu":
+        return {}  # Ascend evidence rides the official eval; no fake NCU job/retry.
     mode = _ncu_mode(ctx)
     out = ctx.backend.submit_gpu(branch, mode)
     prof = profiler_from_ncu(_without_census_lines(out))
@@ -2384,7 +2420,17 @@ def run_inner_iteration(
     # NCU is best-effort on the GPU side: a PASSING kernel with an empty profiler means
     # NCU itself failed (e.g. a lost job), so retry; a correctness-broken kernel yields
     # no NCU legitimately (the bench crashes), so don't waste GPU retrying that.
-    profiler = _ncu_profiler(ctx, branch, correctness=ev.correctness)
+    # A measurement-unavailable reading is a harness defect the card already explained:
+    # no profiling job can repair it, so it buys no NCU retry either.
+    measurement = ev.measurement or {}
+    # Another gate (e.g. the prep contract) may have turned this into a genuine
+    # correctness failure after the card reported the missing window: correctness wins.
+    measurement_unavailable = (measurement.get("status") == "unavailable"
+                               and ev.correctness)
+    profiler = ev.profiler or ({} if measurement_unavailable else
+                               _ncu_profiler(ctx, branch, correctness=ev.correctness))
+    if ev.cann_bench:
+        ev.cann_bench = {**ev.cann_bench, "job": getattr(be, "last_job_id", "")}
     orch_summary = _pop_orch_summary(profiler)
     kernels = _pop_kernels(profiler)
     serial_raw = _parse_serial_census(profiler)
@@ -2392,6 +2438,26 @@ def run_inner_iteration(
     if sass := _sass_precision(ctx, sass_mp or (orch_summary or {}).get("mma_precision"),
                                iter_no):
         precision = {**precision, "sass": sass}
+
+    if measurement_unavailable:
+        # The official checker accepted the cases but the declared timing window was
+        # not in the report (wrong timing_basis / missing trace_view field / a zero or
+        # non-finite elapsed_us). No kernel edit can create that window: leave the tree
+        # at its committed checkpoint, record the structured evidence as an unevaluated
+        # NEUTRAL row, and let run_inner_loop stop structurally on it. Billing this as
+        # a correctness REVERT reset a possibly-good tree and fed three identical
+        # configuration failures to the student before "stuck".
+        detail = _measurement_error(measurement)
+        _log(f"iter {iter_no}: {record.decision_id} MEASUREMENT UNAVAILABLE ({detail})")
+        rec = IterationRecord(
+            iter=iter_no, decision_id=record.decision_id, change=record.change,
+            correctness=None, verdict="NEUTRAL", metric_before=metric_before, sha=sha,
+            error=detail, profiler=profiler, cluster=cluster, orch_summary=orch_summary,
+            base_sha=base_sha, kernels=kernels, prep=ev.prep or {}, precision=precision,
+            cann_bench=ev.cann_bench, measurement=measurement,
+        )
+        append_record(ctx.status_path, rec)
+        return rec
 
     if not ev.correctness:
         # relaxed-revert keeps perf regressions, but a correctness break is a hard REVERT.
@@ -2407,7 +2473,7 @@ def run_inner_iteration(
             correctness=False, verdict="REVERT", metric_before=metric_before,
             error=detail, profiler=profiler, cluster=cluster,
             orch_summary=orch_summary, base_sha=base_sha, kernels=kernels,
-            prep=ev.prep or {}, precision=precision,
+            prep=ev.prep or {}, precision=precision, cann_bench=ev.cann_bench,
         )
         append_record(ctx.status_path, rec)
         return rec
@@ -2426,7 +2492,7 @@ def run_inner_iteration(
         metric_before=metric_before, profiler=profiler, sha=sha, cluster=cluster,
         orch_summary=orch_summary, base_sha=base_sha, kernels=kernels,
         prep=ev.prep or {}, n_workloads=ev.n_workloads, workloads=ev.workloads,
-        precision=precision,
+        precision=precision, cann_bench=ev.cann_bench,
     )
     append_record(ctx.status_path, rec)
     _log_axis_change(ctx, rec)
@@ -2857,6 +2923,10 @@ def run_inner_loop(ctx: LoopContext, start_iter: int, *,
             _log(f"iter {iter_no}: {rec.decision_id} KEEP moved the tree — the priced-null "
                  f"notice for {ctx.phase_close['phase']} retired")
             ctx.phase_close = None
+        if stop := _measurement_unavailable_stop(load_records(ctx.status_path)):
+            _log(f"iter {iter_no}: {rec.error} — structural, stopping ({stop}); fix "
+                 f"eval/cann_task.json / the bench, not the kernel")
+            return stop
         if stop := _prep_structural_stop(load_records(ctx.status_path)):
             # Same family as gate_unmeasured below: the bench is the card's
             # frozen file, so a prep block it never reports — or a prep
@@ -6200,6 +6270,16 @@ def run_meta_step(ctx: LoopContext, *, best_before: float | None = None,
                 f"primary evidence, read before judging)\n"
                 f"{render_ncu_report(records, baseline=arch_ncu)}"
                 f"\n\n### Metric evolution table\n{render_ncu_trace(records)}\n")
+    if lang_mode.is_pypto(ctx.language):
+        from forgekernel.profiling import evidence_digest, benchmark_digest
+        ncu_view = "\n\n## Ascend hardware ground truth (not NCU)\n" + json.dumps({
+            "iterations": [{"iter": r.iter, "verdict": r.verdict,
+                            "profiler": evidence_digest(r.profiler),
+                            "cann_bench": benchmark_digest(r.cann_bench)} for r in records],
+            "reference": {"profiler": evidence_digest(ctx.ref_baseline.profiler),
+                          "cann_bench": benchmark_digest(ctx.ref_baseline.cann_bench)}
+                         if ctx.ref_baseline else None,
+        }, ensure_ascii=False)
     if recon:
         # Two-sided reconciliation: the digest above never quoted the ref side,
         # so "tensor occupancy gap ≈ the whole residual" — the decisive plateau
@@ -6812,7 +6892,8 @@ def run_meta_step(ctx: LoopContext, *, best_before: float | None = None,
         patch_out = _teacher(be).run_agent(render_prompt(_meta_prompt(ctx, "patch_prompt.md"), bindings, extra))
         violations = _patch_landing_violations(
             at_entry, _read_milestone(ctx), _parse_list(patch_out, "changed_entries"))
-        violations += _validate_milestone_file(ctx.milestone, baseline=at_entry)
+        violations += _validate_milestone_file(ctx.milestone, baseline=at_entry,
+                                               profiler_backend=_profiler_backend(ctx))
         if not violations:
             break
         _log(f"meta: patch has {len(violations)} violation(s) -> re-prompt: {violations[0]}")
@@ -6934,8 +7015,14 @@ def _line_delta(before: str, after: str) -> str:
     return f"+{add}/-{rem} lines"
 
 
+def _profiler_backend(ctx: LoopContext) -> str:
+    from forgekernel.profiling import backend_for
+    return backend_for(ctx.language, ctx.profiler_backend)
+
+
 def _validate_milestone_file(milestone, authoring: bool = False,
-                             baseline: str | None = None) -> list[str]:
+                             baseline: str | None = None,
+                             profiler_backend: str | None = None) -> list[str]:
     """Violations in the milestone file — a missing or unreadable file is itself one.
 
     Absence is the pre-distillation state, not a conformant milestone. Reporting it
@@ -6954,8 +7041,9 @@ def _validate_milestone_file(milestone, authoring: bool = False,
     from forgekernel.milestone import validate_milestone
     p = Path(milestone)
     try:
-        return validate_milestone(p.read_text(encoding="utf-8"),
-                                  authoring=authoring, baseline=baseline)
+        text = p.read_text(encoding="utf-8")
+        return validate_milestone(text, authoring=authoring, baseline=baseline,
+                                  profiler_backend=profiler_backend)
     except OSError as e:
         return [f"milestone file unreadable ({p}): {type(e).__name__}"]
 
@@ -8658,6 +8746,42 @@ def _recon_prompt(ctx: LoopContext, extra: str = "") -> str:
                          extra=addendum + extra)
 
 
+def _run_ascend_recon(ctx: LoopContext) -> ReconResult:
+    """Ascend recon uses archived official measurements, never CUDA evidence gates."""
+    import shlex
+    started = time.time()
+    extra = ""
+    for round_no in range(ctx.max_recon_rounds):
+        out = _teacher(ctx.backend).run_agent(render_prompt(
+            _meta_prompt(ctx, "recon_prompt.md"), _bindings(ctx), extra))
+        turn = parse_student_turn_safe(out, allow_recon=True)
+        if isinstance(turn, ReconRequest):
+            path = Path(turn.path)
+            if (path.is_absolute() or ".." in path.parts or not path.parts
+                    or path.parts[0] != "notes" or path.suffix != ".py"
+                    or not (ctx.recon_dir / path).is_file()):
+                extra = "Write a real notes/*.py script inside the recon tree before requesting it."
+                continue
+            ctx.recon_backend.commit(f"Ascend recon: {path}")
+            log = ctx.recon_backend.submit_gpu("main", f"cmd:python3 {shlex.quote(str(path))}")
+            _save_recon_log(ctx, str(path), round_no, log)
+            extra = f"Previous measured recon output:\n{log[-12000:]}"
+            continue
+        if _recon_artifacts_written(ctx, since=started):
+            report = ctx.recon_path.read_text()
+            from forgekernel.profiling import channel_violations
+            violations = channel_violations(report, _profiler_backend(ctx))
+            if "[MEASURED" not in report:
+                violations.append("recon must cite an archived measured job")
+            if not violations:
+                _save_recon_state(ctx, rounds=round_no)
+                return ReconResult(rounds=round_no, report=ctx.recon_path, finished=True)
+            extra = "Recon evidence violations: " + "; ".join(violations)
+        else:
+            extra = "Write both the recon report and candidates table to the injected paths."
+    raise AgentError("Ascend reconnaissance did not produce a measured report and candidates table")
+
+
 def run_recon_step(ctx: LoopContext) -> ReconResult:
     """Black-box reconnaissance: the teacher measures the reference it may not read.
 
@@ -8697,6 +8821,8 @@ def run_recon_step(ctx: LoopContext) -> ReconResult:
         _log(f"meta/recon: completed in a previous session ({_RECON_STATE_NAME} "
              "validates against the on-disk write-up) — skipping straight to distillation")
         return prior
+    if lang_mode.is_pypto(ctx.language):
+        return _run_ascend_recon(ctx)
     _seed_sass_tools(ctx, rbe)
     # Freshness floor for the write-up gate: artifacts must have been (re)written
     # after this moment. Without it, whatever report.md/candidates.md happen to sit
@@ -10524,6 +10650,14 @@ def _seed_ws_stall_tools(ctx: LoopContext) -> None:
     `git archive`, which ships committed files only. Same driver-not-agent rule
     as the recon seeding: teacher-written parsers each got a half wrong.
     """
+    if lang_mode.is_pypto(ctx.language):
+        source = ctx.meta_dir.parent / "skills/ascend-profile/ascend_probe.py"
+        dest = Path(ctx.workspace) / "notes/ascend_probe.py"
+        if source.is_file() and (not dest.exists() or dest.read_bytes() != source.read_bytes()):
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(source.read_bytes())
+            ctx.backend.commit("notes: vendor Ascend experiment tool (driver-seeded)")
+        return
     if not ctx.stall_pricing:
         return
     _seed_pricing_toolkits(ctx.workspace, ctx.backend)
@@ -10552,6 +10686,19 @@ def job_env_preflight(ctx: LoopContext, policy: str = "refuse") -> str | None:
         return None
     be = ctx.backend
     branch = f"{ctx.branch_prefix}-jobenv"
+    if lang_mode.is_pypto(ctx.language):
+        be.push_branch(branch)
+        try:
+            out = be.submit_gpu(branch, "preflight")
+        except BackendError as exc:
+            return f"Ascend preflight unavailable: {exc}"
+        if "ASCEND-PREFLIGHT-OK" not in out:
+            return "Ascend preflight failed: " + out[-1500:]
+        _log("job-env preflight: Ascend runtime/profiler available; NCU not applicable")
+        return None
+    if _profiler_backend(ctx) == "none":
+        _log("job-env preflight: profiler disabled; no NCU job")
+        return None
     problems, seen = [], []
     try:
         _seed_ws_stall_tools(ctx)   # idempotent; the check script rides the pricing toolkit
@@ -11377,7 +11524,8 @@ def run_distill_step(ctx: LoopContext) -> "MetaResult":
                         f"(last output tail: {out[-160:]!r})")
         else:
             dead_rounds = 0
-        violations = _validate_milestone_file(ctx.milestone, authoring=True)
+        violations = _validate_milestone_file(ctx.milestone, authoring=True,
+                                               profiler_backend=_profiler_backend(ctx))
         try:
             draft = Path(ctx.milestone).read_text(encoding="utf-8")
         except OSError:
@@ -11834,6 +11982,7 @@ def run_best_confirmation(ctx: LoopContext, jobs: int = 3, max_extra: int = 2,
              f"in hand — buying {max(0, jobs - len(samples))} more")
     consecutive_errors = 0
     attempts = 0
+    rejected_jobs = []
     while len(samples) < jobs and attempts < jobs + max_extra:
         attempts += 1
         try:
@@ -11861,11 +12010,16 @@ def run_best_confirmation(ctx: LoopContext, jobs: int = 3, max_extra: int = 2,
             # an absolute median is still the claim repetition exists to firm up.
             why = ev.error or f"no {ctx.gate_window}-window reading in the log"
             _log(f"confirm: job {job} unusable ({why})")
+            rejected_jobs.append({"job": job, "reason": why})
             continue
         sample = {"job": job, "ms": ms, "ref_ms": ref_ms, "ratio": ratio,
                   "node": _job_node(be, job)}
         if ev.workloads:
             sample["workloads"] = ev.workloads
+        if ev.cann_bench:
+            sample["cann_bench"] = ev.cann_bench
+        if ev.profiler:
+            sample["profiler"] = ev.profiler
         off = _pct_off(ms, keep_ms)
         if off is not None and abs(off) > CONFIRM_NODE_BAND_PCT:
             sample["off_keep_pct"] = round(off, 2)
@@ -11884,7 +12038,8 @@ def run_best_confirmation(ctx: LoopContext, jobs: int = 3, max_extra: int = 2,
     short = " (SHORT of requested — treat as provisional)" if len(samples) < jobs else ""
     out = {"sha": ref, "window": ctx.gate_window, "requested": jobs,
            "jobs": samples, "median_ms": med_ms, "keep_ms": keep_ms,
-           "node_band_pct": CONFIRM_NODE_BAND_PCT}
+           "node_band_pct": CONFIRM_NODE_BAND_PCT,
+           "rejected_jobs": rejected_jobs}
     med_off = _pct_off(med_ms, keep_ms)
     out["keep_disputed"] = bool(med_off is not None and abs(med_off) > CONFIRM_NODE_BAND_PCT)
     if out["keep_disputed"]:
@@ -11905,6 +12060,11 @@ def run_best_confirmation(ctx: LoopContext, jobs: int = 3, max_extra: int = 2,
         _log("confirm: per-workload medians: " + describe_workload_readings(per_wl))
     if ratios:
         out["median_ratio"] = statistics.median(ratios)
+        # Derive the comparison protocol from the readings actually present in
+        # these jobs; an out-of-job Ascend reference is not same-job paired.
+        out["ratio_basis"] = ("same-job-paired"
+                              if all(s.get("ref_ms") for s in samples if s.get("ratio"))
+                              else "mixed-provenance")
         _log(f"confirm: median ratio {out['median_ratio']:.4f} over {len(ratios)} job(s) "
              f"@ {ref[:10]} ({ctx.gate_window} window){short}")
     else:

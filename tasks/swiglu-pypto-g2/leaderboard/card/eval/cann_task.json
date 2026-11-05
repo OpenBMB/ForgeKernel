@@ -1,0 +1,11 @@
+{
+  "operator": "SwiGlu",
+  "task_dir": "tasks/level1/swi_glu",
+  "source_dir": ".",
+  "warmup": 3,
+  "repeat": 5,
+  "profiler_backend": "msprof",
+  "perf_metric_strategy": "trace_view",
+  "timing_basis": "cann_trace_view",
+  "expected_cann_ref": "059cb61d41b279ad021160517bd2a5f6b7a05e01"
+}

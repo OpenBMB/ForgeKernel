@@ -1,0 +1,25 @@
+# Read by forge run; machine-specific oracle paths are filled from the frozen ref tree.
+[loop]
+language = "pypto"
+kb_arch = "ascend950pr"
+gate_window = "device"
+oracle_mode = "source"
+recon_op = ""
+ref_mode = "ref"
+ref_name = "CANN-Bench public PyPTO SwiGlu"
+ref_shape = "20 public cases"
+ref_hardware = "Ascend950PR"
+ref_from_goal = "off"
+ref_price_op = ""
+precision_contract = "off"
+correctness_monitor = "off"
+confirm_jobs = 3
+eval_timeout_s = 7200
+profiler_backend = "msprof"
+ncu_available = false
+job_env_preflight = "warn"
+timeline_probe = "off"
+stall_pricing = false
+orch_census = false
+# Optional local PyPTO / PTO source trees for an offline student.
+# dsl_source_dirs = ["/path/to/pypto", "/path/to/pto-isa"]

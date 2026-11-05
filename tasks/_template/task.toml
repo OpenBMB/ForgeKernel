@@ -3,8 +3,8 @@
 # [target], [budget]); write only what changes.
 
 [task]
-language = "cutedsl"                 # cutedsl | cuda
-arch     = "sm100"                   # the target GPU (sm90, sm100, ...)
+language = "cutedsl"                 # cutedsl | cuda | pypto
+arch     = "sm100"                   # sm90/sm100 for NVIDIA; ascend910b/c or ascend950pr/dt for PyPTO
 
 # The reference: the implementation to learn from and to beat. Leave the table out and a
 # /goal session writes one first.
@@ -22,8 +22,9 @@ arch     = "sm100"                   # the target GPU (sm90, sm100, ...)
 # timing = "device"                  # device | e2e
 
 # [agent]                            # both agents; [agent.teacher] / [agent.student] for one
-# model  = "claude-opus-5-5"
-# effort = "high"
+# model    = "your-model"
+# provider = "native"                # or a provider from global_config/backends.toml
+# effort   = "high"
 
 # [budget]
 # hours           = 4                # the loop's wall clock: reconnaissance, distillation, student rounds

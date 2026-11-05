@@ -25,6 +25,7 @@ import subprocess
 import tomllib
 from pathlib import Path
 
+from forgekernel import arch as arch_mod
 from forgekernel import leaderboard as lbmod
 from forgekernel import scaffold, sealref
 from forgekernel.paths import repo_root, template_dir
@@ -32,7 +33,7 @@ from forgekernel.paths import repo_root, template_dir
 SUITE = "forgekernel"
 PROBLEM = lbmod.PROBLEM_FILE                     # eval/leaderboard/problem.json
 LB_DIR = lbmod.LEADERBOARD_DIR
-KERNEL_FILE = {"cutedsl": "kernel.py", "cuda": "kernel.cu"}
+KERNEL_FILE = {"cutedsl": "kernel.py", "cuda": "kernel.cu", "pypto": "kernel.py"}
 CUTE_ARCH = {"sm90": "sm_90a", "sm100": "sm_100a", "sm103": "sm_103a", "sm120": "sm_120a"}
 EVAL_FILES = ("leaderboard.py", "timing.py", "precision.py", "closed_ref.py", "ncu_probe.py")
 NCU_PROBE_MODE = "cmd:ncu --csv --metrics gpu__time_active.sum python3 eval/ncu_probe.py"
@@ -222,11 +223,19 @@ def install_board_trees(run, task, machine) -> Path:
     op_dir = run.operators_dir / task.name
     run.operators_dir.mkdir(parents=True, exist_ok=True)
     shutil.copytree(lb.card, op_dir)
-    trees = [(op_dir, JOB_TIMEOUT_S)]
+    trees = [(op_dir, evaluation_timeout(op_dir, task, JOB_TIMEOUT_S))]
     if lb.ref is not None:
         ref = run.operators_dir / ref_tree(task.name)
         shutil.copytree(lb.ref, ref)
-        trees.append((ref, 2700))
+        if task.language == "pypto":
+            example = op_dir / "loop.toml.example"
+            lc = tomllib.loads(example.read_text()).get("loop", {}) if example.exists() else {}
+            if lc.get("oracle_mode") == "blackbox":
+                from forgekernel.cannref import seal_tree
+                problem = json.loads((op_dir / PROBLEM).read_text())
+                seal_tree(ref, f"kernel.py::{problem['entry']}")
+        trees.append((ref, evaluation_timeout(
+            ref, task, evaluation_timeout(op_dir, task, 2700))))
     for tree, timeout in trees:
         write_submit(tree, task, machine, timeout=timeout)
         _ignore(tree, "loop.toml")
@@ -246,6 +255,17 @@ def write_board_loop_toml(run, task, op_dir: Path, *, deny: list[str], ncu: bool
         [str(p) for p in lc.get("ref_source_paths", [])] + list(deny)))
     lc.setdefault("ref_source_urls", [])
     lc.setdefault("ref_from_goal", "off")
+    if task.language == "pypto" and task.leaderboard.suite == "cann-bench":
+        # The frozen CANN task carries a public reference in its own tree. The teacher
+        # reads it there; the student never receives that tree in a job.
+        lc["language"] = task.loop_language
+        if lc.get("oracle_mode") == "blackbox":
+            lc.pop("oracle", None)
+            lc["recon_op"] = ref_tree(task.name)
+        else:
+            lc["oracle"] = str(run.operators_dir / ref_tree(task.name) / "src")
+        lc["ref_submit_op"] = ref_tree(task.name)
+        lc["ref_in_job"] = False
     if not ncu:
         lc.update(ncu_available=False, job_env_preflight="warn", timeline_probe="off",
                   stall_pricing=False, orch_census=False)
@@ -269,6 +289,20 @@ def _toml_value(v) -> str:
     raise TypeError(f"{type(v).__name__} is not a loop.toml value")
 
 
+def evaluation_timeout(tree: Path, task, fallback: int) -> int:
+    """Full official evaluation budget, distinct from CANN's per-operator timeout."""
+    source = tree / "loop.toml"
+    if not source.exists():
+        source = tree / "loop.toml.example"
+    if task.language == "pypto" and source.exists():
+        cfg = tomllib.loads(source.read_text()).get("loop", {})
+        seconds = int(cfg.get("eval_timeout_s", fallback))
+        if seconds <= 0:
+            raise ValueError("[loop] eval_timeout_s must be positive")
+        return seconds
+    return fallback
+
+
 def write_submit(tree: Path, task, machine, timeout: int = JOB_TIMEOUT_S) -> Path:
     """submit.toml: where this tree's GPU jobs run (local.env), rewritten on every launch."""
     lines = [
@@ -280,8 +314,17 @@ def write_submit(tree: Path, task, machine, timeout: int = JOB_TIMEOUT_S) -> Pat
         f'workdir = {json.dumps(machine.remote_workdir)}',
         f'env_file = {json.dumps(machine.remote_env_file)}', f'gpu = "{machine.gpu}"',
         "[env]", 'PYTHONUNBUFFERED = "1"',
-        f'CUTE_DSL_ARCH = "{CUTE_ARCH.get(task.arch, task.arch + "a")}"',
     ]
+    if task.language == "pypto":
+        lines += [
+            'FK_DEVICE_TYPE = "npu"',
+            f'ASCEND_RT_VISIBLE_DEVICES = "{machine.gpu}"',
+            f'FK_ASCEND_PYTHON = {json.dumps(machine.env.get("FK_ASCEND_PYTHON", "python3"))}',
+            f'CANN_BENCH_DIR = {json.dumps(machine.env.get("CANN_BENCH_DIR", ""))}',
+            f'PTO_TILE_LIB_CODE_PATH = {json.dumps(machine.env.get("PTO_TILE_LIB_CODE_PATH", ""))}',
+        ]
+    else:
+        lines.append(f'CUTE_DSL_ARCH = "{CUTE_ARCH.get(task.arch, task.arch + "a")}"')
     p = Path(tree) / "submit.toml"
     p.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return p
@@ -314,7 +357,7 @@ def write_loop_toml(run, task, op_dir: Path, *, deny: list[str], ncu: bool = Tru
             'recon_op    = ""            # no reference yet: a /goal session writes one',
             'ref_from_goal = "auto"',
             f'ref_shape   = {json.dumps(shapes)}',
-            f'ref_hardware = "{task.arch}"',
+            f'ref_hardware = "{arch_mod.hardware_label(task.arch)}"',
         ]
     else:
         rt = ref_tree(task.name)
@@ -331,7 +374,7 @@ def write_loop_toml(run, task, op_dir: Path, *, deny: list[str], ncu: bool = Tru
             "ref_in_job         = true",
             f"ref_name           = {json.dumps(name)}",
             f"ref_shape          = {json.dumps(shapes)}",
-            f'ref_hardware       = "{task.arch}"',
+            f'ref_hardware       = "{arch_mod.hardware_label(task.arch)}"',
             'arch_ref_mode      = "sealref"',
             f'arch_ref_submit_op = "{rt}"',
             f"arch_ref_name      = {json.dumps(name)}",
