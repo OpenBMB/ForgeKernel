@@ -16,6 +16,7 @@ import tomllib
 import yaml
 
 from forgekernel import arch as arch_mod
+from forgekernel import profiling
 from forgekernel.paths import repo_root
 from forgekernel.task import load_task
 
@@ -143,17 +144,22 @@ def main(argv=None):
             'rm -rf build dist cann_bench.egg-info cann_bench/kernel_impl.py\n'
             'cp kernel.py cann_bench/kernel_impl.py\npython setup.py bdist_wheel\n', True)
         put(tree, 'cann_bench/__init__.py', f'from .kernel_impl import {args.entry}\n')
-    put(card, 'eval/cann_task.json', json.dumps({
-        'operator': args.operator, 'task_dir': task_dir, 'source_dir': '.',
+    # One declaration, both trees: a candidate and a reference timed in different
+    # windows produce a ratio between incomparable numbers. Validated rather than
+    # merely written, so a later hand-edit of either file is caught at launch too.
+    cann_task = {
+        'operator': args.operator, 'task_dir': task_dir,
         'warmup': 3, 'repeat': 5, 'profiler_backend': 'msprof',
         'perf_metric_strategy': 'kernel_details',
         'timing_basis': 'cann_kernel_details',
-        'expected_cann_ref': expected_ref}, indent=2))
-    put(ref, 'eval/cann_task.json', json.dumps({
-        'operator': args.operator, 'task_dir': task_dir, 'source_dir': 'src',
-        'warmup': 3, 'repeat': 5, 'profiler_backend': 'msprof',
-        'perf_metric_strategy': 'kernel_details', 'timing_basis': 'cann_kernel_details',
-        'expected_cann_ref': expected_ref}, indent=2))
+        'expected_cann_ref': expected_ref}
+    if problems := profiling.timing_basis_problems(cann_task):
+        p.error('; '.join(problems))
+    if why := profiling.card_backend_problem(
+            cann_task, profiling.backend_for('pypto', cann_task['profiler_backend'])):
+        p.error(why)
+    put(card, 'eval/cann_task.json', json.dumps({**cann_task, 'source_dir': '.'}, indent=2))
+    put(ref, 'eval/cann_task.json', json.dumps({**cann_task, 'source_dir': 'src'}, indent=2))
     put(card, 'eval/leaderboard/problem.json', json.dumps(problem(cases, task_dir,
         args.operator, args.entry, commit), indent=2))
     signature = 'query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, ' \

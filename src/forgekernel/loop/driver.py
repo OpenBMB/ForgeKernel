@@ -2402,6 +2402,28 @@ def run_inner_iteration(
                                iter_no):
         precision = {**precision, "sass": sass}
 
+    if ev.measurement.get("status") == "unavailable" and ev.correctness:
+        # Every official case passed; what is missing is the window this card
+        # declared. Telling the student "correctness FAIL" here aims the next
+        # iteration at a kernel that is not wrong -- the same mistake the
+        # forbidden-op scan once hid behind 14h of phantom-bug chasing, and the
+        # one that invalidated the first GQA M0 gate. The tree is left standing:
+        # there is nothing in it to revert.
+        detail = ("MEASUREMENT UNAVAILABLE (configuration, not the kernel): "
+                  + str(ev.measurement.get("reason") or "declared timing window absent")
+                  + "; reconcile eval/cann_task.json timing_basis with "
+                    "perf_metric_strategy before reading this iteration as a verdict")
+        _log(f"iter {iter_no}: {record.decision_id} NO-READING ({detail})")
+        rec = IterationRecord(
+            iter=iter_no, decision_id=record.decision_id, change=record.change,
+            correctness=True, verdict="REVERT", metric_before=metric_before,
+            error=detail, profiler=profiler, cluster=cluster,
+            orch_summary=orch_summary, base_sha=base_sha, kernels=kernels,
+            prep=ev.prep or {}, precision=precision, cann_bench=ev.cann_bench,
+        )
+        append_record(ctx.status_path, rec)
+        return rec
+
     if not ev.correctness:
         # relaxed-revert keeps perf regressions, but a correctness break is a hard REVERT.
         # Carry the bench's own verdict text into the record: the student and the meta
@@ -11999,7 +12021,13 @@ def run_best_confirmation(ctx: LoopContext, jobs: int = 3, max_extra: int = 2,
         _log("confirm: per-workload medians: " + describe_workload_readings(per_wl))
     if ratios:
         out["median_ratio"] = statistics.median(ratios)
-        out["ratio_basis"] = "same-job-paired"
+        # Derived, never assumed: a ratio is paired only because THIS job carried
+        # both readings. Asserting the label would mis-stamp any card that reports
+        # a ref measured in its own tree (every PyPTO card) as same-job paired,
+        # and self_evolve.py gates promotion on this exact string.
+        out["ratio_basis"] = ("same-job-paired"
+                              if all(s.get("ref_ms") for s in samples if s.get("ratio"))
+                              else "mixed-provenance")
         _log(f"confirm: median ratio {out['median_ratio']:.4f} over {len(ratios)} job(s) "
              f"@ {ref[:10]} ({ctx.gate_window} window){short}")
     else:

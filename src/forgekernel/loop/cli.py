@@ -2070,6 +2070,46 @@ EXIT_PRECISION_UNREPORTED = 20
 EXIT_GOAL_REF_UNAVAILABLE = 21
 # ... or it ran and produced no correct reference that survived acceptance.
 EXIT_GOAL_REF_FAILED = 22
+# A PyPTO card whose execution-side eval/cann_task.json and control-side loop.toml
+# describe different measurements (forgekernel/profiling.py).
+EXIT_PYPTO_CARD_CONFIG = 23
+
+
+def _pypto_card_problem(op_dir: Path, cfg: dict, language: str) -> str | None:
+    """Why this PyPTO card's two configuration files cannot describe one measurement.
+
+    Checks the card tree and, when the run has one, the reference tree beside it:
+    a reference measured in a different window than the candidate produces a ratio
+    between two incomparable numbers, which is the one error no later gate catches.
+    """
+    from forgekernel.profiling import card_backend_problem, timing_basis_problems
+    loop_backend = backend_for(language, cfg.get("loop", {}).get("profiler_backend", "auto"),
+                               ncu_available(cfg))
+    trees = {"card": Path(op_dir) / "eval/cann_task.json"}
+    ref_op = cfg.get("loop", {}).get("ref_submit_op") or cfg.get("loop", {}).get("recon_op")
+    if ref_op:
+        trees["reference"] = Path(op_dir).parent / str(ref_op) / "eval/cann_task.json"
+    bases = {}
+    for label, path in trees.items():
+        if not path.is_file():
+            if label == "card":
+                return f"{path} is missing: a PyPTO card must declare its CANN task"
+            continue
+        try:
+            config = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            return f"{path} is unreadable ({type(e).__name__}: {e})"
+        if problems := timing_basis_problems(config):
+            return f"{label} tree {path}: " + "; ".join(problems)
+        if why := card_backend_problem(config, loop_backend):
+            return f"{label} tree {path}: {why}"
+        bases[label] = config.get("timing_basis") or "cann_trace_view"
+    if len(set(bases.values())) > 1:
+        shown = ", ".join(f"{k}={v}" for k, v in sorted(bases.items()))
+        return (f"candidate and reference are timed in different windows ({shown}): their "
+                f"ratio would divide two incomparable measurements — give both trees the "
+                f"same timing_basis")
+    return None
 
 
 def _resolve_kb_arch(flag: str | None, cfg: dict,
@@ -2442,6 +2482,16 @@ def _main(argv: list[str] | None = None) -> int:
     if kb_arch_problem and not args.dry_run:
         sys.stderr.write(f"[loop] error: kb_arch = {kb_arch!r}: {kb_arch_problem}\n")
         return EXIT_KB_ARCH_MISSING
+
+    # Two files configure one measurement: loop.toml decides which [VERIFY: ...]
+    # channels a gate accepts, eval/cann_task.json decides which tool the job
+    # runs and which window it reads. Nothing read both, so a disagreement passed
+    # every check and surfaced hours later as an unanswerable gate line or a
+    # rejected recon report. Fail closed at launch, where it costs one message.
+    if lang_mode.is_pypto(language) and not args.dry_run:
+        if why := _pypto_card_problem(op_dir, cfg, language):
+            sys.stderr.write(f"[loop] error: {why}\n")
+            return EXIT_PYPTO_CARD_CONFIG
 
     # Agent policy declaration: static, before anything is measured. The student is
     # kept offline and away from the reference source in every run; a blackbox run's

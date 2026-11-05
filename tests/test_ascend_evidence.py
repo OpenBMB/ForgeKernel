@@ -51,7 +51,12 @@ def test_official_evidence_survives_eval_trajectory_and_baseline(tmp_path):
     assert loaded.cann_bench['cases'][0]['memory_peak_mb'] is None
     digest = build_digest([loaded], {'value': .1})
     assert digest['cann_bench'][0]['overall_score'] == 71
-    assert digest['profiler'][0]['backend'] == 'cann_trace_view'
+    # The collection backend and the timed window are two axes: this card collects
+    # msprof and times on trace_view, so the digest must carry both, not one name
+    # standing in for the other (forgekernel/profiling.py).
+    assert digest['profiler'][0]['backend'] == 'msprof'
+    assert digest['profiler'][0]['timing_basis'] == 'cann_trace_view'
+    assert digest['cann_bench'][0]['timing_basis'] == 'cann_trace_view'
     baseline = parse_ref_stdout(text)
     assert baseline['ms_device'] == pytest.approx(.2)
     assert baseline['cann_bench'] == ev.cann_bench
@@ -168,7 +173,10 @@ def test_pypto_never_submits_ncu_even_when_kernel_passes():
 
 
 def test_backend_and_channel_contract():
-    assert profiling.backend_for('pypto') == 'cann_trace_view'
+    # msprof, not cann_trace_view: the narrower default rejected the very channels
+    # meta/pypto/ instructs the teacher to cite (tests/test_pypto_evidence_config.py).
+    assert profiling.backend_for('pypto') == 'msprof'
+    assert profiling.backend_for('pypto', 'cann_trace_view') == 'cann_trace_view'
     assert profiling.backend_for('cutedsl', ncu_available=False) == 'none'
     with pytest.raises(ValueError):
         profiling.backend_for('pypto', 'ncu')

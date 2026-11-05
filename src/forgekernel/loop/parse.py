@@ -187,6 +187,10 @@ class EvalResult:
     # Official board evidence is distinct from the campaign's single reference.
     cann_bench: dict = field(default_factory=dict)
     profiler: dict = field(default_factory=dict)
+    # Set when the official judge passed every case but the card's declared timing
+    # window is absent from the report: a configuration fault, not a kernel one.
+    # Kept off ``correctness`` so the next iteration is not aimed at the kernel.
+    measurement: dict = field(default_factory=dict)
 
 
 _WORKLOAD_KEYS = ("device_median_ms", "bwd_median_ms", "ref_device_ms", "vs_ref_device", "vs_ref")
@@ -326,6 +330,7 @@ def parse_eval(text: str) -> EvalResult:
         prep=prep,
         cann_bench=obj.get("cann_bench") or {},
         profiler=obj.get("profiler") or {},
+        measurement=obj.get("measurement") or {},
         precision=obj.get("precision") if isinstance(obj.get("precision"), dict) else None,
         n_workloads=n_wl,
         workloads=workloads,
