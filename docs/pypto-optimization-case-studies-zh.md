@@ -235,5 +235,6 @@ SwiGlu 还可以继续找下一个几何平均尾部。新的薄维或极窄维 
 
 ## 相关文档
 
+- 编译代价与 scout 子集 [pypto-gqa-compile-cost-zh.md](pypto-gqa-compile-cost-zh.md)
 - PyPTO 后端架构 [pypto-backend-technical-report-zh.md](pypto-backend-technical-report-zh.md)
 - NPU 接口 KB [../hw_kb/pypto/ascend950pr/index.md](../hw_kb/pypto/ascend950pr/index.md)
