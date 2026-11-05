@@ -126,8 +126,10 @@ It is still a cross-job comparison, not CUDA-style paired timing.
   This is about 658× slower than the strong library and must not be presented as
   a performance success.
 - Outer M0 audit diagnosed `G3` (hardware interface), not a target-reached
-  stop. The campaign then certified and applied new KB recipes, fixed several
-  numerical failures, and is still iterating as of this document update.
+  stop. The campaign then certified and applied new KB recipes and fixed several
+  numerical failures, but after repeated probe/compile loops it remained at the
+  same order of magnitude. It was stopped and recorded `status=stopped`; there is
+  no best confirmation and it is not a performance success.
 
 New probe-certified recipes produced by that campaign:
 
@@ -215,6 +217,10 @@ missing `torch`; installing the documented test dependency did not weaken or
 skip any test.
 
 ## Remaining distinction from the paper
+
+No DeepSeek `402`/quota error occurred during these all-DeepSeek runs. The GQA
+campaign was stopped voluntarily at the recorded state, not because of an API
+failure.
 
 Strict paper alignment is **not achievable on this machine as configured**: the
 paper's Ascend results are CANN-Bench 1.1.2 on Ascend910C with hosted scoring on

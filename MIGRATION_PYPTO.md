@@ -12,9 +12,10 @@
 > 以 `stop=target` 完成，最终 3+3 确认 student 0.0547384 ms vs fresh ref
 > 0.0657764 ms，**1.20165×**。Level-4 GQA 新 run
 > `gqa-pypto_261104-210250-eee5` 已完成 20/20 正确 M0，但 device geomean
-> **40.24 ms**，远慢于强库 0.06116 ms，外层仍按 G3 接口学习继续；
-> 该 run 尚未达到目标。论文的 910C/CANN 1.1.2 hosted 结果无法在
-> 950PR/CANN 2.0.0 上严格复现。
+> **40.24 ms**，远慢于强库 0.06116 ms；经多轮 G3 probe/编译循环后仍未收敛，
+> 已主动停止并标记 `status=stopped`，没有 best confirmation。
+> 全 DeepSeek 期间没有出现 402/配额错误。论文的 910C/CANN 1.1.2 hosted
+> 结果无法在 950PR/CANN 2.0.0 上严格复现。
 
 > **2026-11-04 增量**：当前分支已增加官方全量数据与原始报告归档、真实 msprof 导出、
 > Ascend 专用 profiler/prompt 路由、密封 PyPTO 参照晋升、三次确认与双侧噪声检查。
