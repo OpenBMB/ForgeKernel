@@ -420,33 +420,60 @@ def _latest_report(root: Path) -> Path | None:
     return max(candidates, key=lambda p: p.stat().st_mtime) if candidates else None
 
 
-def _end_group(proc: subprocess.Popen, grace_s: float = TERM_GRACE_S) -> None:
-    """SIGTERM the evaluator's process group, then SIGKILL what is left.
+def _group_alive(pgid: int) -> bool:
+    """Whether any process of ``pgid`` still exists (its leader may be long reaped)."""
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
-    kernel_eval spawns worker processes per card; signalling the parent alone leaves
-    them holding the NPU, so the group is the unit. Its own session (below) is what
-    makes the group ours to end.
+
+def _end_group(pgid: int, proc: subprocess.Popen,
+               grace_s: float = TERM_GRACE_S) -> None:
+    """SIGTERM the evaluator's process group, then SIGKILL what outlives the grace.
+
+    The group is the unit, not the evaluator: ``kernel_eval`` runs worker processes per
+    card, and the leader exiting on SIGTERM proves nothing about them. Waiting on the
+    leader and calling that cleanup is exactly how a job comes back "stopped" with a
+    worker still holding the NPU and its output pipe open. ``pgid`` is captured at
+    spawn (the child leads the session it was given), so the group is still addressable
+    after its leader has been reaped.
     """
-    if proc.poll() is not None:
+    if not _group_alive(pgid):
         return
     try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-    except (ProcessLookupError, PermissionError):
+        os.killpg(pgid, signal.SIGTERM)
+    except ProcessLookupError:
         return
+    except PermissionError:
+        pass
+    deadline = time.monotonic() + grace_s
+    while time.monotonic() < deadline:
+        # Reap the leader as soon as it exits: an unreaped zombie keeps its pid in the
+        # group, so killpg(pgid, 0) would keep succeeding for the whole grace even
+        # though the only thing left to wait for is a corpse we have not collected.
+        proc.poll()
+        if not _group_alive(pgid):
+            break
+        time.sleep(0.05)
+    proc.poll()
+    if _group_alive(pgid):
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
     try:
         proc.wait(timeout=grace_s)
-        return
     except subprocess.TimeoutExpired:
         pass
-    try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
-        pass
-    proc.wait()
 
 
 def _run_logged(cmd: list[str], *, cwd: Path, env: dict, log: Path,
-                budget_s: int | None = None) -> RunOutcome:
+                budget_s: int | None = None,
+                grace_s: float = TERM_GRACE_S) -> RunOutcome:
     """Run the evaluator in its own session, logging every line it prints.
 
     The adapter owns stopping it: at ``budget_s`` (or on a stop signal to this
@@ -458,12 +485,19 @@ def _run_logged(cmd: list[str], *, cwd: Path, env: dict, log: Path,
         proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True, bufsize=1,
                                 start_new_session=True)
+        # start_new_session makes this child the leader of a session and group of its
+        # own, so its pid IS the group we started and may end -- even once it is a
+        # reaped zombie, when os.getpgid() would no longer answer.
+        pgid = proc.pid
 
         def pump() -> None:  # the evaluator is chatty for hours; nothing may block it
             assert proc.stdout is not None
-            for line in proc.stdout:
-                print(line, end="", flush=True)
-                fh.write(line)
+            try:
+                for line in proc.stdout:
+                    print(line, end="", flush=True)
+                    fh.write(line)
+            except (ValueError, OSError):  # our end was closed by a stop below
+                pass
 
         reader = threading.Thread(target=pump, daemon=True)
         reader.start()
@@ -473,14 +507,30 @@ def _run_logged(cmd: list[str], *, cwd: Path, env: dict, log: Path,
         except subprocess.TimeoutExpired:
             interrupted = True
             reason = f"the evaluator exceeded its {budget_s}s budget"
-            _end_group(proc)
+            _end_group(pgid, proc, grace_s)
             rc = proc.returncode
         except (Interrupted, KeyboardInterrupt) as exc:
             interrupted = True
             reason = str(exc) or "the adapter received a stop signal"
-            _end_group(proc)
+            _end_group(pgid, proc, grace_s)
             rc = proc.returncode
-        reader.join(timeout=TERM_GRACE_S)
+        # The pipe is the other half of the cleanup: a worker that outlives its leader
+        # keeps stdout (and the NPU) open, so the reader never sees EOF. After the
+        # leader is gone, whatever still holds the pipe belongs to the group we
+        # started -- end that group rather than return with it alive.
+        reader.join(timeout=min(grace_s, 5.0))
+        if reader.is_alive():
+            _end_group(pgid, proc, grace_s)
+            reader.join(timeout=grace_s)
+        if reader.is_alive():  # a writer in an uninterruptible sleep: drop our end
+            fh.write("\n[cann-adapter] output pipe abandoned: a writer outlived the "
+                     "group kill\n")
+            fh.flush()
+            try:
+                proc.stdout.close()
+            except OSError:
+                pass
+            reader.join(timeout=5.0)
         if interrupted:
             fh.write(f"\n[cann-adapter] evaluator stopped: {reason}\n")
             fh.flush()

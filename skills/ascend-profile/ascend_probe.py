@@ -11,6 +11,10 @@ representative set, any other value is a comma-separated id list (``gqa_8`` is a
 worst-case probe). A narrowed experiment prints ``PROBE SCOUT``, never ``PROBE PASS``:
 five cases out of twenty price an architecture decision for the teacher, they do not
 certify a lever. Certifying one still costs the full set.
+
+``repeat`` is 3..5 for a full-set experiment (alternated repeats are its noise floor)
+and 1..5 for a narrowed one: a single scoped round is one paired base/variant A/B, two
+evaluations, which is the point of a scout.
 """
 from __future__ import annotations
 
@@ -63,11 +67,34 @@ def evaluation_env(spec: dict) -> tuple[dict, str]:
 
 
 def adapter_reading(stdout: str, rc: int, stderr: str, label: str) -> tuple[dict, float]:
-    """One evaluation's eval JSON and the worst error norm it reported."""
+    """One evaluation's eval JSON and the worst error norm it reported.
+
+    The JSON is read before the exit status is judged: a job the adapter stopped still
+    publishes structured cost and scope, and throwing that away would report "failed"
+    for exactly the outcome whose point is knowing what it spent. A partial or stopped
+    reading is surfaced as a diagnostic -- never as a PASS.
+    """
     marker = stdout.rfind("=== JSON ===")
-    if rc or marker < 0:
-        raise RuntimeError(f"{label} evaluation failed: {(stderr or stdout)[-1000:]}")
-    result = json.loads(stdout[marker:].splitlines()[1])
+    result = None
+    if marker >= 0:
+        try:
+            result = json.loads(stdout[marker:].splitlines()[1])
+        except (IndexError, ValueError):
+            result = None
+    cost = ((result or {}).get("cann_bench") or {}).get("cost") or {}
+    scope = (result or {}).get("workload_scope")
+    if cost or scope:
+        print("ASCEND-EVAL-COST " + json.dumps(
+            {"label": label, "rc": rc, "cost": cost, "workload_scope": scope},
+            separators=(",", ":")), flush=True)
+    if result is None:
+        raise RuntimeError(f"{label} evaluation produced no eval JSON (rc={rc}): "
+                           f"{(stderr or stdout)[-1000:]}")
+    correctness = result.get("correctness") or {}
+    if rc or not correctness.get("pass"):
+        raise RuntimeError(
+            f"{label} evaluation produced no gate reading (rc={rc}): "
+            f"{json.dumps({'correctness': correctness, 'cost': cost, 'workload_scope': scope}, separators=(',', ':'))[:1200]}")
     worst = 0.0
     for case in result.get("cann_bench", {}).get("cases", []):
         for output in (case.get("accuracy") or {}).get("output_results", []):
@@ -75,6 +102,8 @@ def adapter_reading(stdout: str, rc: int, stderr: str, label: str) -> tuple[dict
             if isinstance(err, (float, int)) and math.isfinite(err):
                 worst = max(worst, abs(err))
     return result, worst
+
+
 def _forward_artifacts(stdout: str, prefix: str) -> None:
     """Re-emit the adapter's checksummed artifacts under this experiment's own names."""
     for line in stdout.splitlines():
@@ -85,9 +114,17 @@ def _forward_artifacts(stdout: str, prefix: str) -> None:
 
 
 def run_experiment(workspace: Path, spec: dict) -> dict:
+    requested = str(spec.get("cases") or "").strip()
     repeat = int(spec.get("repeat", 3))
-    if not 3 <= repeat <= 5:
-        raise ValueError("repeat must be 3..5 for a priced experiment")
+    # A full-set experiment is a certification: alternated repeats are what give it a
+    # two-sided noise floor. A narrowed one certifies nothing, so one paired A/B is a
+    # legitimate pricing round -- two evaluations, i.e. 10 case runs over a 5-case scout
+    # set rather than 30. That is what makes "falsify this architecture cheaply" real.
+    if requested:
+        if not 1 <= repeat <= 5:
+            raise ValueError("repeat must be 1..5 for a scoped experiment")
+    elif not 3 <= repeat <= 5:
+        raise ValueError("repeat must be 3..5 for a full-set experiment")
     source = (workspace / "kernel.py").read_text()
     variant = apply_edits(source, spec["edits"])
     if source == variant:
@@ -143,6 +180,7 @@ def run_experiment(workspace: Path, spec: dict) -> dict:
     result = {"hypothesis": spec.get("hypothesis"),
               "kernel_sha256": hashlib.sha256(source.encode()).hexdigest(),
               "gain_pct": gain, "noise_pct": noise, "records": records,
+              "repeat": repeat,
               "scope": (f"{len(workloads)} of the card's cases ({','.join(workloads)}), "
                         f"via FK_CANN_CASES={scope}; pricing only, NOT a gate reading"
                         if scope else

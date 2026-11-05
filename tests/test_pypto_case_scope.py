@@ -347,7 +347,7 @@ def test_a_stalled_evaluator_is_stopped_with_its_whole_process_group(tmp_path):
         "time.sleep(600)\n")
     started = time.monotonic()
     outcome = adapter._run_logged([sys.executable, "-c", script], cwd=tmp_path,
-                                  env={**os.environ}, log=log, budget_s=2)
+                                  env={**os.environ}, log=log, budget_s=2, grace_s=5)
     elapsed = time.monotonic() - started
     assert outcome.interrupted is True
     assert outcome.rc != 0 and 1 < elapsed < 60
@@ -358,6 +358,81 @@ def test_a_stalled_evaluator_is_stopped_with_its_whole_process_group(tmp_path):
     while time.monotonic() < deadline and _alive(pid):
         time.sleep(0.1)
     assert not _alive(pid), "the evaluator's worker outlived the group kill"
+
+
+_WORKER_IGNORES_TERM = (
+    "import signal, time\n"
+    "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+    "print('worker up', flush=True)\n"
+    "time.sleep(600)\n")
+
+
+def _leader_with_stubborn_worker(pid_file: Path, *, exit_on_start: bool) -> str:
+    """An evaluator leader whose worker inherits stdout and ignores SIGTERM.
+
+    ``exit_on_start``: the leader is gone before the adapter looks at it (the
+    normal-exit shape); otherwise it dies on the adapter's SIGTERM, which is the
+    timeout shape -- and the one where waiting on the leader alone is not cleanup.
+    """
+    import_line = "import signal, subprocess, sys, time\n"
+    spawn = (f"worker = subprocess.Popen([sys.executable, '-c', {_WORKER_IGNORES_TERM!r}],\n"
+             "    stdout=sys.stdout)\n"
+             f"open(r'{pid_file}', 'w').write(str(worker.pid))\n")
+    if exit_on_start:
+        return (import_line + spawn + "print('leader done', flush=True)\n"
+                "sys.exit(0)\n")
+    return (import_line + spawn +
+            "signal.signal(signal.SIGTERM, signal.SIG_DFL)\n"
+            "print('leader ready', flush=True)\n"
+            "time.sleep(600)\n")
+
+
+@pytest.mark.skipif(not Path("/proc").is_dir(), reason="needs /proc to reap-check")
+def test_a_worker_that_outlives_its_leader_is_still_ended(tmp_path):
+    """The leader dying on SIGTERM is not the group dying.
+
+    kernel_eval's per-case workers are separate processes. One that ignores SIGTERM
+    keeps the NPU and the output pipe open after the leader is reaped; cleanup that
+    waits on the leader and returns comes back "stopped" with that worker alive, and
+    the reader thread stuck on a pipe nobody closes.
+    """
+    adapter = _adapter()
+    log = tmp_path / "evaluator.log"
+    pid_file = tmp_path / "worker.pid"
+    started = time.monotonic()
+    outcome = adapter._run_logged(
+        [sys.executable, "-c", _leader_with_stubborn_worker(pid_file, exit_on_start=False)],
+        cwd=tmp_path, env={**os.environ}, log=log, budget_s=2, grace_s=1)
+    elapsed = time.monotonic() - started
+    assert outcome.interrupted is True
+    assert "leader ready" in log.read_text() and "worker up" in log.read_text()
+    worker = int(pid_file.read_text())
+    assert not _alive(worker), "a TERM-ignoring worker outlived the group kill"
+    assert elapsed < 15, (f"cleanup took {elapsed:.1f}s: the leader was reaped and its "
+                          f"group was never ended")
+
+
+@pytest.mark.skipif(not Path("/proc").is_dir(), reason="needs /proc to reap-check")
+def test_a_worker_holding_the_pipe_after_a_normal_exit_is_ended(tmp_path):
+    """A clean evaluator exit followed by a leaking worker is still our cleanup.
+
+    Nothing timed out here: the report is complete, but the job's own session still
+    holds a process and our stdout pipe. The adapter ends the group it started and
+    releases the pipe instead of waiting out the reader forever.
+    """
+    adapter = _adapter()
+    log = tmp_path / "evaluator.log"
+    pid_file = tmp_path / "worker.pid"
+    started = time.monotonic()
+    outcome = adapter._run_logged(
+        [sys.executable, "-c", _leader_with_stubborn_worker(pid_file, exit_on_start=True)],
+        cwd=tmp_path, env={**os.environ}, log=log, budget_s=None, grace_s=1)
+    elapsed = time.monotonic() - started
+    assert outcome.interrupted is False and outcome.rc == 0
+    assert "leader done" in log.read_text()
+    worker = int(pid_file.read_text())
+    assert not _alive(worker), "a leaked worker outlived the group kill"
+    assert elapsed < 15, f"cleanup took {elapsed:.1f}s instead of ending the group"
 
 
 def test_an_interrupted_job_still_reports_its_cost_and_scope(tmp_path, cann_tree,

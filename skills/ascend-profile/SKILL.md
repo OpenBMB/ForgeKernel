@@ -47,9 +47,12 @@ ids, same golden inputs, same published baselines, one build, 5 compiles.
 Three ways to ask for it, all landing on one adapter input:
 
 - **experiment spec** (the teacher/recon path, and the one to use):
-  `{"hypothesis": ..., "edits": [...], "repeat": 3, "cases": "scout"}`.
+  `{"hypothesis": ..., "edits": [...], "repeat": 1, "cases": "scout"}`.
   `"cases": "gqa_8"` is a single worst-case probe; `"gqa_1,gqa_8"` is an explicit
-  list; leaving `cases` out runs the whole declared set, as before.
+  list; leaving `cases` out runs the whole declared set, as before. A scoped
+  experiment also accepts `repeat: 1` (one paired base/variant round = two
+  evaluations, 10 case runs over a 5-case set); a full-set experiment still needs
+  `repeat: 3..5` for its noise floor.
 - **gpu_entry task**: `bash gpu_entry.sh scout` (or `scout gqa_1,gqa_8`).
 - **environment**: `FK_CANN_CASES=scout` (`all` / `full` / `gate` / `ref` /
   `reference` / `confirm` mean the full set; unset means the full set).

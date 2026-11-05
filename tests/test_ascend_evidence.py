@@ -387,3 +387,76 @@ def test_a_narrowed_experiment_prices_but_never_certifies(tmp_path, monkeypatch,
         else:
             assert 'FK_CANN_CASES' not in env
         assert int(env['FK_CANN_EVAL_BUDGET']) > 0
+
+
+def _run_with(monkeypatch, tmp_path, spec, *, stdout=None, returncode=0):
+    """One run_experiment with a stand-in evaluator; returns (result, call workspaces)."""
+    from forgekernel.skills import ascend_probe
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    workspace = _experiment_workspace(tmp_path)
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append(Path(kw['cwd']).name)
+        ms = 10.0 if Path(kw['cwd']).name.startswith('base') else 9.0
+        payload = stdout or ('=== JSON ===\n' + json.dumps({
+            'correctness': {'pass': True},
+            'performance': {'device_median_ms': ms, 'bwd_median_ms': ms,
+                            'workloads': [{'name': 'level4/gqa_1'}]},
+            'cann_bench': {'cases': []}}) + '\n')
+        return type('P', (), {'stdout': payload, 'stderr': '', 'returncode': returncode})()
+
+    monkeypatch.setattr(ascend_probe.subprocess, 'run', fake_run)
+    spec = {'hypothesis': 'a narrower KV tile helps',
+            'edits': [{'old': 'return 1', 'new': 'return 2'}], **spec}
+    return ascend_probe.run_experiment(workspace, spec), calls
+
+
+def test_one_scoped_round_is_two_evaluations_and_full_set_needs_three(
+        tmp_path, monkeypatch, capsys):
+    """A scout's cost is its evaluations, not its repeats.
+
+    The full-set runner needs 3..5 alternated repeats for a two-sided noise floor. A
+    narrowed reading certifies nothing, so one paired round is legitimate -- and that
+    is what makes "two cases, quick falsification" and "ten cases, paired scout"
+    actually cheaper than a certification.
+    """
+    result, calls = _run_with(monkeypatch, tmp_path, {'cases': 'scout', 'repeat': 1})
+    assert calls == ['base-0', 'variant-0'], calls
+    assert result['repeat'] == 1 and result['certifies'] is False
+    assert 'PROBE SCOUT' in capsys.readouterr().out
+
+    with pytest.raises(ValueError, match='3..5'):
+        _run_with(monkeypatch, tmp_path / 'full1', {'repeat': 1})
+    with pytest.raises(ValueError, match='1..5'):
+        _run_with(monkeypatch, tmp_path / 'scout6', {'cases': 'scout', 'repeat': 6})
+
+
+@pytest.mark.parametrize('cases', ['scout', 'gqa_8'])
+def test_an_interrupted_evaluation_surfaces_cost_and_never_passes(
+        tmp_path, monkeypatch, capsys, cases):
+    """The adapter's stopped-job JSON is evidence; throwing it away is the bug.
+
+    A budget-bound evaluation exits non-zero *with* a structured partial eval. Judging
+    the exit status before reading it turns the one outcome whose point is knowing
+    what it spent into "evaluation failed: <tail>".
+    """
+    stopped = {'correctness': {'pass': False,
+                              'error': 'the adapter stopped the evaluator after 600.0s '
+                                       '(budget 600s): the evaluator exceeded its 600s budget'},
+               'performance': {},
+               'cann_bench': {'cost': {'evaluator_seconds': 600.0, 'budget_seconds': 600,
+                                       'cases_requested': 5, 'interrupted': True,
+                                       'interrupt_reason': 'the evaluator exceeded its '
+                                                           '600s budget'},
+                              'case_scope': {'of': 20}},
+               'workload_scope': {'workloads': 'gqa_1,gqa_5', 'rep': 'gqa_1', 'of': 20}}
+    with pytest.raises(RuntimeError) as exc:
+        _run_with(monkeypatch, tmp_path, {'cases': cases, 'repeat': 1},
+                  stdout='=== JSON ===\n' + json.dumps(stopped) + '\n', returncode=137)
+    message = str(exc.value)
+    assert 'no gate reading' in message and 'interrupted' in message
+    assert 'budget_seconds' in message and 'workload_scope' in message
+    out = capsys.readouterr().out
+    assert '"interrupted": true' in out or '"interrupted":true' in out
+    assert 'PROBE PASS' not in out and 'PROBE SCOUT' not in out
