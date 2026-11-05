@@ -55,7 +55,10 @@ sanitizer is available on this device.
    REOPEN-REVERT restores the earlier ledger. Never rebuild unaffected work.
 6. A REVERT bans that combination under its recorded conditions. Retry only
    with a changed precondition. Once the DAG is exhausted, return EXHAUSTED;
-   the outer loop adds decisions. Do not invent a free-play phase.
+   the outer loop adds decisions. Do not invent a free-play phase. A
+   measurement-unavailable stop (the card's declared timing window was not
+   reported) is a harness/configuration defect, not a REVERT of your kernel:
+   that combination is not banned, and the run stops for the card to be fixed.
 
 ## Targeted NPU probes
 Write a small independent `notes/<name>.py` to test one hardware contract with

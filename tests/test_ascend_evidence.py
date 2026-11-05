@@ -51,7 +51,8 @@ def test_official_evidence_survives_eval_trajectory_and_baseline(tmp_path):
     assert loaded.cann_bench['cases'][0]['memory_peak_mb'] is None
     digest = build_digest([loaded], {'value': .1})
     assert digest['cann_bench'][0]['overall_score'] == 71
-    assert digest['profiler'][0]['backend'] == 'cann_trace_view'
+    assert digest['profiler'][0]['backend'] == 'msprof'
+    assert digest['profiler'][0]['timing_basis'] == 'cann_trace_view'
     baseline = parse_ref_stdout(text)
     assert baseline['ms_device'] == pytest.approx(.2)
     assert baseline['cann_bench'] == ev.cann_bench
@@ -65,11 +66,13 @@ def test_kernel_details_and_trace_view_are_both_retained_with_explicit_selection
     report['operators'][0]['cases'][0]['op_times']['device_kernels'] = {'candidate': 123}
     result = _adapter().report_to_eval(report, config={'timing_basis': 'cann_trace_view'})
     assert result['performance']['device_window_basis'] == 'cann_trace_view'
+    assert result['cann_bench']['timing_basis'] == result['performance']['device_window_basis']
     assert result['performance']['workloads'][0]['device_median_ms'] == .1
     assert result['cann_bench']['cases'][0]['official_elapsed_us'] == 100
     assert result['cann_bench']['cases'][0]['op_times']['device_kernels'] == {'candidate': 123}
     vendor = _adapter().report_to_eval(report, config={'timing_basis': 'cann_kernel_details'})
     assert vendor['performance']['device_window_basis'] == 'cann_kernel_details'
+    assert vendor['cann_bench']['timing_basis'] == vendor['performance']['device_window_basis']
 
 
 def test_evaluator_failure_preserves_official_case_error():
@@ -168,13 +171,19 @@ def test_pypto_never_submits_ncu_even_when_kernel_passes():
 
 
 def test_backend_and_channel_contract():
-    assert profiling.backend_for('pypto') == 'cann_trace_view'
+    assert profiling.backend_for('pypto') == profiling.PYPTO_DEFAULT_BACKEND == 'msprof'
+    assert profiling.backend_for('pypto', 'cann_trace_view') == 'cann_trace_view'
     assert profiling.backend_for('cutedsl', ncu_available=False) == 'none'
     with pytest.raises(ValueError):
         profiling.backend_for('pypto', 'ncu')
+    with pytest.raises(ValueError):
+        profiling.backend_for('cutedsl', 'msprof')
     assert profiling.channel_violations('[VERIFY: ncu-derived]', 'msprof')
     assert not profiling.channel_violations('[VERIFY: msprof-direct]', 'msprof')
     assert profiling.channel_violations('[VERIFY: msprof-direct]', 'cann_trace_view')
+    assert profiling.evidence_digest(
+        {'backend': 'msprof', 'timing_basis': 'cann_kernel_details', 'status': 'available'}
+    )['timing_basis'] == 'cann_kernel_details'
 
 
 def test_all_pypto_overlays_are_operator_agnostic():
@@ -190,3 +199,133 @@ def test_ascend_experiment_edits_are_atomic():
                                   {'old': 'def', 'new': 'xyz'}]) == 'def xyz'
     with pytest.raises(ValueError, match='overlap'):
         apply_edits('abcdef', [{'old': 'abc', 'new': ''}, {'old': 'bcde', 'new': ''}])
+
+
+def _adapter_at(path: Path):
+    spec = importlib.util.spec_from_file_location('cann_bench_card', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+PYPTO_TASKS = ('gqa-pypto', 'swiglu-pypto', 'swiglu-pypto-g2')
+SYNCED_CARD_FILES = (('eval/cann_bench.py', 'eval/cann_bench.py'),
+                     ('eval/ascend_profiler.py', 'eval/ascend_profiler.py'),
+                     ('gpu_entry.sh', 'pypto_gpu_entry.sh'))
+
+
+def test_shipped_pypto_cards_are_synced_with_the_card_template():
+    """Frozen card trees are what jobs execute; the template is not an overlay.
+
+    A template-only edit leaves every installed task on the old adapter (that is how
+    missing trace_view kept becoming correctness=False and the profiler fields stayed
+    absent). scripts/sync_pypto_cards.py is the explicit maintenance step, and this
+    invariant fails the build when a later change skips it.
+    """
+    template = repo_root() / 'src/forgekernel/card_template'
+    for task in PYPTO_TASKS:
+        for side in ('card', 'ref'):
+            tree = repo_root() / f'tasks/{task}/leaderboard/{side}'
+            for rel, source in SYNCED_CARD_FILES:
+                assert (tree / rel).read_bytes() == (template / source).read_bytes(), (
+                    f'{tree / rel} is stale; run scripts/sync_pypto_cards.py')
+
+
+@pytest.mark.parametrize('task', ['gqa-pypto', 'swiglu-pypto'])
+def test_shipped_card_adapter_reports_routing_and_measurement(task):
+    card = repo_root() / f'tasks/{task}/leaderboard/card'
+    adapter = _adapter_at(card / 'eval/cann_bench.py')
+    config = json.loads((card / 'eval/cann_task.json').read_text())
+    result = adapter.report_to_eval(enhanced(), config=config)
+    assert result['correctness']['pass'] is True
+    assert result['measurement']['status'] == 'available'
+    assert result['profiler']['backend'] == config['profiler_backend'] == 'msprof'
+    assert result['profiler']['timing_basis'] == result['performance']['device_window_basis']
+    assert result['cann_bench']['timing_basis'] == result['performance']['device_window_basis']
+
+
+def test_card_backend_and_basis_resolution_matches_the_control_plane():
+    _adapter()
+    import ascend_profiler
+    assert ascend_profiler.DEFAULT_PROFILER_BACKEND == profiling.PYPTO_DEFAULT_BACKEND
+    assert ascend_profiler.resolve_backend({}) == 'msprof'
+    assert ascend_profiler.resolve_backend({'profiler_backend': 'auto'}) == 'msprof'
+    assert ascend_profiler.resolve_backend(
+        {'profiler_backend': 'cann_trace_view'}) == 'cann_trace_view'
+    with pytest.raises(ValueError, match='ncu'):
+        ascend_profiler.resolve_backend({'profiler_backend': 'ncu'})
+    assert ascend_profiler.resolve_timing_basis({}) == 'cann_trace_view'
+    assert ascend_profiler.resolve_timing_basis(
+        {'perf_metric_strategy': 'kernel_details'}) == 'cann_kernel_details'
+    assert ascend_profiler.resolve_timing_basis(
+        {'perf_metric_strategy': 'kernel_details',
+         'timing_basis': 'cann_trace_view'}) == 'cann_trace_view'
+    with pytest.raises(ValueError, match='timing basis'):
+        ascend_profiler.resolve_timing_basis({'timing_basis': 'wall_clock'})
+
+
+def test_a_missing_declared_timing_window_is_measurement_unavailable_not_a_correctness_fail():
+    report = enhanced()
+    for case in report['operators'][0]['cases']:
+        case['op_times'] = {}
+    result = _adapter().report_to_eval(report, config={'profiler_backend': 'msprof'})
+    # The official checker passed every case; only the declared trace_view window is
+    # absent. Reporting that as correctness=False is what turned a harness defect into
+    # three student REVERTs.
+    assert result['correctness']['pass'] is True
+    assert result['performance'] == {}
+    assert result['measurement']['status'] == 'unavailable'
+    assert result['measurement']['timing_basis'] == 'cann_trace_view'
+    assert result['cann_bench']['timing_basis'] == 'cann_trace_view'
+    assert 'trace_view.aicore_e2e' in result['measurement']['reason']
+    ev = parse_eval('=== JSON ===\n' + json.dumps(result))
+    assert ev.correctness is True and ev.measurement['status'] == 'unavailable'
+
+
+class _Done:
+    def __init__(self, stdout=''):
+        self.stdout, self.stderr, self.returncode = stdout, '', 0
+
+
+@pytest.mark.parametrize('config, expected_basis', [
+    ({}, 'cann_trace_view'),
+    ({'profiler_backend': 'msprof', 'perf_metric_strategy': 'kernel_details',
+      'timing_basis': 'cann_kernel_details'}, 'cann_kernel_details'),
+])
+def test_evaluate_resolves_omitted_backend_and_keeps_report_metadata(
+        tmp_path, monkeypatch, config, expected_basis):
+    """_evaluate is the path a real job runs: resolution + collect must agree."""
+    adapter = _adapter()
+    import ascend_profiler
+    monkeypatch.setattr(ascend_profiler.shutil, 'which', lambda name: None)
+
+    cann = tmp_path / 'cann'
+    cann.mkdir()
+    workspace = tmp_path / 'ws'
+    (workspace / 'eval').mkdir(parents=True)
+    full = {'operator': 'SwiGlu', 'task_dir': 'tasks/level1/swi_glu', **config}
+    (workspace / 'eval/cann_task.json').write_text(json.dumps(full))
+    monkeypatch.setenv('CANN_BENCH_DIR', str(cann))
+
+    monkeypatch.setattr(adapter.subprocess, 'run',
+                        lambda cmd, **kw: _Done('deadbeef\n' if cmd[:2] == ['git', '-C'] else ''))
+
+    def fake_logged(cmd, *, cwd, env, log):
+        reports = Path(cmd[cmd.index('--reports-dir') + 1])
+        (reports / 'run_eval_1.json').write_text(json.dumps(enhanced()))
+        log.write_text('evaluator ok\n')
+        return 0
+
+    monkeypatch.setattr(adapter, '_run_logged', fake_logged)
+    result = adapter._evaluate(workspace, full)
+    assert result['measurement']['status'] == 'available'
+    assert result['measurement']['backend'] == 'msprof'
+    assert result['profiler']['backend'] == 'msprof'
+    assert result['profiler']['timing_basis'] == expected_basis
+    # Collection evidence merged in, report metadata not replaced by it.
+    assert result['profiler']['reason'] == 'msprof executable unavailable'
+    assert result['profiler']['cases'][0]['trace_view']['aicore_e2e'] == 100
+    assert result['performance']['device_window_basis'] == expected_basis
+    assert result['cann_bench']['timing_basis'] == result['performance']['device_window_basis']
+    assert (workspace / '.cann_results').is_dir()
+    assert list((workspace / '.cann_results').glob('*/forge_eval.json'))

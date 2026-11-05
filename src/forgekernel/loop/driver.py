@@ -921,6 +921,35 @@ def _prep_structural_stop(records) -> str | None:
     return None
 
 
+_MEASUREMENT_ERROR_PREFIX = "measurement unavailable: "
+
+
+def _measurement_error(measurement: dict) -> str:
+    """One configuration diagnostic for a card that did not produce its declared window."""
+    reason = measurement.get("reason") or "the official report carried no timing reading"
+    backend = measurement.get("backend") or "unknown"
+    basis = measurement.get("timing_basis") or "undeclared"
+    return (f"{_MEASUREMENT_ERROR_PREFIX}{reason} (backend={backend}, "
+            f"timing_basis={basis}); the card did not report its declared timing "
+            f"window — fix eval/cann_task.json / the bench, not the kernel")
+
+
+def _measurement_unavailable_stop(records) -> str | None:
+    """A configuration/measurement defect is structural, not a student failure.
+
+    The card says a declared timing window was not reported (its ``measurement``
+    block is unavailable). No kernel edit can produce that window, so the segment
+    stops on its first sighting: no reset (the tree was never shown wrong), no
+    REVERT streak, and no next student turn over the same broken harness.
+    """
+    if not records:
+        return None
+    last = records[-1]
+    if (last.measurement or {}).get("status") == "unavailable":
+        return "measurement_unavailable"
+    return None
+
+
 def _best_keep_record(records, gate_window: str):
     """The sitting best KEEP record (same identity rule as ``_best_keep_profiler``)."""
     kept = [r for r in records
@@ -2391,7 +2420,15 @@ def run_inner_iteration(
     # NCU is best-effort on the GPU side: a PASSING kernel with an empty profiler means
     # NCU itself failed (e.g. a lost job), so retry; a correctness-broken kernel yields
     # no NCU legitimately (the bench crashes), so don't waste GPU retrying that.
-    profiler = ev.profiler or _ncu_profiler(ctx, branch, correctness=ev.correctness)
+    # A measurement-unavailable reading is a harness defect the card already explained:
+    # no profiling job can repair it, so it buys no NCU retry either.
+    measurement = ev.measurement or {}
+    # Another gate (e.g. the prep contract) may have turned this into a genuine
+    # correctness failure after the card reported the missing window: correctness wins.
+    measurement_unavailable = (measurement.get("status") == "unavailable"
+                               and ev.correctness)
+    profiler = ev.profiler or ({} if measurement_unavailable else
+                               _ncu_profiler(ctx, branch, correctness=ev.correctness))
     if ev.cann_bench:
         ev.cann_bench = {**ev.cann_bench, "job": getattr(be, "last_job_id", "")}
     orch_summary = _pop_orch_summary(profiler)
@@ -2401,6 +2438,26 @@ def run_inner_iteration(
     if sass := _sass_precision(ctx, sass_mp or (orch_summary or {}).get("mma_precision"),
                                iter_no):
         precision = {**precision, "sass": sass}
+
+    if measurement_unavailable:
+        # The official checker accepted the cases but the declared timing window was
+        # not in the report (wrong timing_basis / missing trace_view field / a zero or
+        # non-finite elapsed_us). No kernel edit can create that window: leave the tree
+        # at its committed checkpoint, record the structured evidence as an unevaluated
+        # NEUTRAL row, and let run_inner_loop stop structurally on it. Billing this as
+        # a correctness REVERT reset a possibly-good tree and fed three identical
+        # configuration failures to the student before "stuck".
+        detail = _measurement_error(measurement)
+        _log(f"iter {iter_no}: {record.decision_id} MEASUREMENT UNAVAILABLE ({detail})")
+        rec = IterationRecord(
+            iter=iter_no, decision_id=record.decision_id, change=record.change,
+            correctness=None, verdict="NEUTRAL", metric_before=metric_before, sha=sha,
+            error=detail, profiler=profiler, cluster=cluster, orch_summary=orch_summary,
+            base_sha=base_sha, kernels=kernels, prep=ev.prep or {}, precision=precision,
+            cann_bench=ev.cann_bench, measurement=measurement,
+        )
+        append_record(ctx.status_path, rec)
+        return rec
 
     if not ev.correctness:
         # relaxed-revert keeps perf regressions, but a correctness break is a hard REVERT.
@@ -2866,6 +2923,10 @@ def run_inner_loop(ctx: LoopContext, start_iter: int, *,
             _log(f"iter {iter_no}: {rec.decision_id} KEEP moved the tree — the priced-null "
                  f"notice for {ctx.phase_close['phase']} retired")
             ctx.phase_close = None
+        if stop := _measurement_unavailable_stop(load_records(ctx.status_path)):
+            _log(f"iter {iter_no}: {rec.error} — structural, stopping ({stop}); fix "
+                 f"eval/cann_task.json / the bench, not the kernel")
+            return stop
         if stop := _prep_structural_stop(load_records(ctx.status_path)):
             # Same family as gate_unmeasured below: the bench is the card's
             # frozen file, so a prep block it never reports — or a prep
@@ -11999,7 +12060,11 @@ def run_best_confirmation(ctx: LoopContext, jobs: int = 3, max_extra: int = 2,
         _log("confirm: per-workload medians: " + describe_workload_readings(per_wl))
     if ratios:
         out["median_ratio"] = statistics.median(ratios)
-        out["ratio_basis"] = "same-job-paired"
+        # Derive the comparison protocol from the readings actually present in
+        # these jobs; an out-of-job Ascend reference is not same-job paired.
+        out["ratio_basis"] = ("same-job-paired"
+                              if all(s.get("ref_ms") for s in samples if s.get("ratio"))
+                              else "mixed-provenance")
         _log(f"confirm: median ratio {out['median_ratio']:.4f} over {len(ratios)} job(s) "
              f"@ {ref[:10]} ({ctx.gate_window} window){short}")
     else:

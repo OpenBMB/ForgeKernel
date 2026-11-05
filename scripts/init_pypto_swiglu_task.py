@@ -19,6 +19,7 @@ import sys
 import yaml
 
 from forgekernel import arch as arch_mod
+from forgekernel import profiling
 
 ADAPTER = Path("src/forgekernel/card_template/eval/cann_bench.py")
 GPU_ENTRY = Path("src/forgekernel/card_template/pypto_gpu_entry.sh")
@@ -128,8 +129,17 @@ def main(argv: list[str] | None = None) -> int:
             "build/\ndist/\n*.egg-info/\ncann_bench/kernel_impl.py\n"
             "__pycache__/\n*.pyc\n_compile.log\n")
 
+    # Spelled out rather than left to the adapter's defaults: the pair that decides
+    # which window every gate reads is the one a reader must be able to see, and
+    # the validator below is what makes the two halves one declaration.
     config = {"operator": "SwiGlu", "task_dir": task_dir, "warmup": 3, "repeat": 5,
-              "profiler_backend": "msprof", "expected_cann_ref": expected_ref}
+              "profiler_backend": "msprof", "perf_metric_strategy": "trace_view",
+              "timing_basis": "cann_trace_view", "expected_cann_ref": expected_ref}
+    if problems := profiling.timing_basis_problems(config):
+        parser.error("; ".join(problems))
+    if why := profiling.card_backend_problem(
+            config, profiling.backend_for("pypto", config["profiler_backend"])):
+        parser.error(why)
     put(card, "eval/cann_task.json", json.dumps({**config, "source_dir": "."}, indent=2) + "\n")
     put(ref, "eval/cann_task.json", json.dumps({**config, "source_dir": "src"}, indent=2) + "\n")
 

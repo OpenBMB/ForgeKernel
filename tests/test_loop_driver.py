@@ -24,7 +24,7 @@ from forgekernel.loop.driver import (
     run_two_layer,
 )
 from forgekernel.resume import Decision
-from forgekernel.inner.trajectory import load_records
+from forgekernel.inner.trajectory import build_digest, load_records
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -8558,3 +8558,41 @@ def test_lever_price_block_says_a_group_card_was_priced_on_its_representative_on
     assert "The KEEP gate is still judged on the group geomean" in block
     stack.pop("workload_scope")
     assert "Multi-workload tree: this table is timed only on the representative" not in _lever_price_block([lever, stack])
+
+
+MEASUREMENT = {'status': 'unavailable', 'backend': 'msprof',
+               'timing_basis': 'cann_trace_view',
+               'reason': 'trace_view.aicore_e2e required for PyPTO candidate'}
+EVAL_MEASUREMENT = (
+    '=== JSON ===\n' + json.dumps({
+        'correctness': {'pass': True, 'passed_cases': 2, 'total_cases': 2, 'error': ''},
+        'performance': {},
+        'profiler': {'backend': 'msprof', 'timing_basis': 'cann_trace_view',
+                     'status': 'unavailable', 'cases': []},
+        'measurement': MEASUREMENT,
+    }))
+
+
+def test_measurement_unavailable_is_structural_not_three_correctness_reverts(tmp_path):
+    # A card's declared timing window is missing: the official cases passed, so no
+    # kernel edit can fix the harness. It must stop on the first sighting, without a
+    # workspace reset, a REVERT streak, or another student/GPU turn.
+    be = FakeBackend([REC('D1', 1.8)], [EVAL_MEASUREMENT])
+    ctx = _ctx(tmp_path, be, target_ms=1.9)
+    ctx.language = 'pypto'
+    ctx.profiler_backend = 'msprof'
+    reason = run_inner_loop(ctx, start_iter=0, initial_green=True,
+                            initial_good_ref='sha-prev')
+    assert reason == 'measurement_unavailable'
+    assert not [c for c in be.calls if c[0] == 'reset']
+    assert len([c for c in be.calls if c[0] == 'agent']) == 1
+    assert not be.agent_outputs
+    records = load_records(ctx.status_path)
+    assert len(records) == 1
+    rec = records[0]
+    assert rec.verdict == 'NEUTRAL' and rec.correctness is None
+    assert rec.measurement == MEASUREMENT
+    assert rec.profiler['timing_basis'] == 'cann_trace_view'
+    assert 'trace_view.aicore_e2e' in rec.error
+    digest = build_digest(records, {'value': None})
+    assert digest['measurement'][0]['timing_basis'] == 'cann_trace_view'

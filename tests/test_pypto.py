@@ -41,6 +41,7 @@ def test_cann_report_becomes_geomean_eval():
     assert perf["bwd_median_ms"] == perf["device_median_ms"]
     assert math.isclose(perf["device_median_ms"], 0.2)
     assert perf["device_window_basis"] == adapter.BASIS == BASIS_CANN_TRACE_VIEW
+    assert result["cann_bench"]["timing_basis"] == perf["device_window_basis"]
     assert BASIS_CANN_TRACE_VIEW in HOST_FREE_BASES
     assert "ref_device_ms" not in perf
 
