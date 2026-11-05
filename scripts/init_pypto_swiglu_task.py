@@ -18,7 +18,8 @@ import sys
 
 import yaml
 
-EXPECTED_CANN_REF = "059cb61d41b279ad021160517bd2a5f6b7a05e01"
+from forgekernel import arch as arch_mod
+
 ADAPTER = Path("src/forgekernel/card_template/eval/cann_bench.py")
 GPU_ENTRY = Path("src/forgekernel/card_template/pypto_gpu_entry.sh")
 PROFILER = Path("src/forgekernel/card_template/eval/ascend_profiler.py")
@@ -77,12 +78,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cann-bench-dir", type=Path, required=True)
     parser.add_argument("--reference-dir", type=Path, required=True,
                         help="CANN-Bench examples/pypto_example")
-    parser.add_argument("--model", default="deepseek-flash[1m]")
-    parser.add_argument("--provider", default="deepseek")
+    parser.add_argument("--arch", default="ascend950pr")
+    parser.add_argument("--hardware", default="")
+    parser.add_argument("--model", default="")
+    parser.add_argument("--provider", default="")
+    parser.add_argument("--effort", default="")
+    parser.add_argument("--teacher-model", default="")
+    parser.add_argument("--teacher-provider", default="")
+    parser.add_argument("--teacher-effort", default="")
+    parser.add_argument("--expected-cann-ref", default="")
     parser.add_argument("--hours", type=float, default=8.0)
     parser.add_argument("--target-ratio", type=float, default=1.05)
     parser.add_argument("--pypto-source", default="")
-    parser.add_argument("--pto-isa", default="/home/shw/Workspace/pto-isa")
+    parser.add_argument("--pto-isa", default="")
+    parser.add_argument("--dsl-source-dir", action="append", default=[])
     args = parser.parse_args(argv)
     repo = Path(__file__).resolve().parents[1]
     task = args.task.resolve()
@@ -92,8 +101,13 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(f"task already exists: {task}")
     actual = subprocess.run(["git", "-C", str(cann), "rev-parse", "HEAD"],
                             check=True, capture_output=True, text=True).stdout.strip()
-    if actual != EXPECTED_CANN_REF:
-        parser.error(f"CANN-Bench ref is {actual}, expected {EXPECTED_CANN_REF}")
+    expected_ref = args.expected_cann_ref or actual
+    if actual != expected_ref:
+        parser.error(f"CANN-Bench ref is {actual}, expected {expected_ref}")
+    args.arch = arch_mod.canonical_arch(args.arch)
+    if not arch_mod.is_ascend_arch(args.arch):
+        parser.error(f"not an Ascend architecture: {args.arch}")
+    hardware = args.hardware or arch_mod.hardware_label(args.arch)
     task_dir = "tasks/level1/swi_glu"
     cases = yaml.safe_load((cann / task_dir / "cases.yaml").read_text(encoding="utf-8"))
     if isinstance(cases, dict):
@@ -115,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
             "__pycache__/\n*.pyc\n_compile.log\n")
 
     config = {"operator": "SwiGlu", "task_dir": task_dir, "warmup": 3, "repeat": 5,
-              "profiler_backend": "msprof"}
+              "profiler_backend": "msprof", "expected_cann_ref": expected_ref}
     put(card, "eval/cann_task.json", json.dumps({**config, "source_dir": "."}, indent=2) + "\n")
     put(ref, "eval/cann_task.json", json.dumps({**config, "source_dir": "src"}, indent=2) + "\n")
 
@@ -148,7 +162,7 @@ def main(argv: list[str] | None = None) -> int:
         "time_reference": False,
         "timing": "device",
         "tolerance": {"outputs": {}, "rule": "CANN-Bench MERE/MARE per public case"},
-        "source": {"task": "official-tasks 2.0.0", "commit": EXPECTED_CANN_REF},
+        "source": {"task": "official-tasks 2.0.0", "commit": expected_ref},
     }
     put(card, "eval/leaderboard/problem.json", json.dumps(problem, indent=2) + "\n")
 
@@ -179,18 +193,18 @@ outputs = ["output"]
 """)
     put(ref, "window.toml", (card / "window.toml").read_text(encoding="utf-8"))
 
-    dsl_dirs = [p for p in (args.pypto_source, args.pto_isa) if p]
+    dsl_dirs = [p for p in (args.pypto_source, args.pto_isa, *args.dsl_source_dir) if p]
     loop = f"""# Read by forge run; machine-specific oracle paths are filled from the frozen ref tree.
 [loop]
 language = "pypto"
-kb_arch = "ascend950"
+kb_arch = {json.dumps(args.arch)}
 gate_window = "device"
 oracle_mode = "source"
 recon_op = ""
 ref_mode = "ref"
 ref_name = "CANN-Bench public PyPTO SwiGlu"
 ref_shape = "20 public cases"
-ref_hardware = "Ascend950PR"
+ref_hardware = {json.dumps(hardware)}
 ref_from_goal = "off"
 ref_price_op = ""
 precision_contract = "off"
@@ -221,10 +235,29 @@ the separate `_<op>ref` tree and is never an in-job comparator.
         (cann / task_dir / "desc.md").read_text(encoding="utf-8")
         + "\n\nThe initial student candidate is the public PyPTO implementation; optimize it.\n")
     put(task, "shapes.json", "[]\n")
-    put(task, "task.toml", f"""# PyPTO on Ascend 950PR, judged by CANN-Bench official-tasks 2.0.0.
+    common = []
+    if args.provider:
+        common.append(f'provider = {json.dumps(args.provider)}')
+    if args.model:
+        common.append(f'model = {json.dumps(args.model)}')
+    if args.effort:
+        common.append(f'effort = {json.dumps(args.effort)}')
+    teacher = []
+    if args.teacher_provider:
+        teacher.append(f'provider = {json.dumps(args.teacher_provider)}')
+    if args.teacher_model:
+        teacher.append(f'model = {json.dumps(args.teacher_model)}')
+    if args.teacher_effort:
+        teacher.append(f'effort = {json.dumps(args.teacher_effort)}')
+    agent_toml = ''
+    if common:
+        agent_toml += '[agent]\n' + '\n'.join(common) + '\n'
+    if teacher:
+        agent_toml += '[agent.teacher]\n' + '\n'.join(teacher) + '\n'
+    put(task, "task.toml", f"""# PyPTO on Ascend, judged by CANN-Bench official-tasks 2.0.0.
 [task]
 language = "pypto"
-arch = "ascend950"
+arch = "{args.arch}"
 
 [leaderboard]
 suite = "cann-bench"
@@ -235,11 +268,7 @@ ref = "leaderboard/ref"
 ratio = {args.target_ratio}
 timing = "device"
 
-[agent]
-provider = {json.dumps(args.provider)}
-model = {json.dumps(args.model)}
-effort = "max"
-
+{agent_toml}
 [budget]
 hours = {args.hours}
 max_meta = 3

@@ -1,7 +1,7 @@
 # Provenance: `pypto-dynamic-execution`
 
 Human-side evidence for the recipe
-`hw_kb/pypto/ascend950/pypto-dynamic-execution.md`. Not in any agent read
+`hw_kb/pypto/ascend950pr/pypto-dynamic-execution.md`. Not in any agent read
 set.
 
 ## Why this entry exists

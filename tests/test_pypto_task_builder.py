@@ -37,12 +37,14 @@ def test_generic_level4_task_is_complete_and_sealable(tmp_path):
     commit = subprocess.run(['git', '-C', str(cann), 'rev-parse', 'HEAD'],
                             check=True, capture_output=True, text=True).stdout.strip()
     builder().main([str(dest), '--cann-bench-dir', str(cann), '--expected-cann-ref', commit,
-                    '--level', 'tasks/level4',
-                    '--pypto-source', '.', '--pto-isa', '.'])
+                    '--level', 'tasks/level4', '--student-model', 'student-test',
+                    '--provider', 'native', '--teacher-model', 'teacher-test',
+                    '--teacher-provider', 'native'])
     task = load_task(dest)
     assert task.name == 'gqa' and len(task.shapes) == 1
-    assert task.teacher.provider == task.student.provider == 'deepseek'
-    assert task.teacher.model == task.student.model == 'deepseek-flash[1m]'
+    assert task.teacher.provider == task.student.provider == 'native'
+    assert task.teacher.model == 'teacher-test'
+    assert task.student.model == 'student-test'
     for name in ('build.sh', 'setup.py', 'kernel.py', 'cann_bench/__init__.py'):
         assert (task.leaderboard.ref / 'src' / name).is_file(), name
     assert 'NotImplementedError' in (task.leaderboard.card / 'kernel.py').read_text()

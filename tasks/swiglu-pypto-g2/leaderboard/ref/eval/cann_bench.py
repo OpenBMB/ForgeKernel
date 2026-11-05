@@ -23,7 +23,6 @@ import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ascend_profiler import collect, emit_artifact
 
-EXPECTED_CANN_REF = "059cb61d41b279ad021160517bd2a5f6b7a05e01"
 BASIS = "cann_trace_view"
 
 
@@ -35,12 +34,14 @@ def geometric_mean(values: list[float]) -> float:
 
 CASE_FIELDS = ("baseline_perf_us", "speedup", "t_hw_us", "perf_score", "op_times",
                "memory_peak_mb", "memory_baseline_mb", "perf_collection_failed",
+               "device_kernels", "official_elapsed_us", "elapsed_us_source",
                "performance_error_msg", "accuracy", "status")
 SCORE_FIELDS = ("score", "compilation_score", "compile_runtime_score", "function_score",
                 "performance_score", "avg_speedup", "compile_runtime_fail_cases")
 
 
-def report_to_eval(report: dict) -> dict:
+def report_to_eval(report: dict, *, config: dict | None = None) -> dict:
+    config = config or {}
     """Convert one CANN-Bench single-pass report into ForgeKernel's eval contract."""
     operators = report.get("operators") or []
     if len(operators) != 1:
@@ -73,13 +74,27 @@ def report_to_eval(report: dict) -> dict:
     performance: dict = {}
     if correct:
         try:
-            names, milliseconds = [], []
+            names, milliseconds, bases = [], [], []
+            basis = str(config.get("timing_basis") or BASIS)
             for case in cases:
-                elapsed = float(case["elapsed_us"])
+                elapsed_us = case.get("elapsed_us")
+                elapsed_source = "case.elapsed_us"
+                trace = (case.get("op_times") or {}).get("trace_view") or {}
+                if basis == BASIS and trace.get("aicore_e2e") is not None:
+                    elapsed_us = trace["aicore_e2e"]
+                    elapsed_source = "op_times.trace_view.aicore_e2e"
+                elif basis == BASIS:
+                    raise ValueError("trace_view.aicore_e2e required for PyPTO candidate")
+                case["official_elapsed_us"] = elapsed_us
+                case["elapsed_us_source"] = elapsed_source
+                official["cases"][len(names)].update({
+                    "official_elapsed_us": elapsed_us, "elapsed_us_source": elapsed_source})
+                elapsed = float(elapsed_us)
                 if elapsed <= 0 or not math.isfinite(elapsed):
                     raise ValueError(f"invalid elapsed_us={elapsed}")
                 names.append(str(case["case_id"]))
                 milliseconds.append(elapsed / 1000.0)
+                bases.append(basis)
             aggregate = geometric_mean(milliseconds)
             workloads = [
                 {"name": name, "bwd_median_ms": ms, "device_median_ms": ms,
@@ -91,7 +106,7 @@ def report_to_eval(report: dict) -> dict:
                 "n_workloads": len(workloads),
                 "bwd_median_ms": aggregate,
                 "device_median_ms": aggregate,
-                "device_window_basis": BASIS,
+                "device_window_basis": bases[0] if bases else basis,
                 "workloads": workloads,
             }
         except (KeyError, TypeError, ValueError) as exc:
@@ -106,12 +121,21 @@ def report_to_eval(report: dict) -> dict:
         },
         "performance": performance,
         "cann_bench": official,
-        "profiler": {"backend": BASIS, "status": "available" if correct else "unavailable",
+        "profiler": {"backend": performance.get("device_window_basis", BASIS), "status": "available" if correct else "unavailable",
                      "source": "CANN-Bench op_times.trace_view",
                      "cases": [{"case_id": c.get("case_id"),
                                 "trace_view": (c.get("op_times") or {}).get("trace_view")}
                                for c in cases]},
     }
+
+
+def evaluator_failure(result: dict, rc: int) -> None:
+    """A partial report is evidence of failure, never a complete gate measurement."""
+    detail = result["correctness"].get("error") or ""
+    result["correctness"].update({"pass": False,
+        "error": (detail + "; " if detail else "")
+                 + f"CANN-Bench evaluator exited {rc}; partial report is not a gate"})
+    result["performance"] = {}
 
 
 def _latest_report(root: Path) -> Path | None:
@@ -162,11 +186,13 @@ def _evaluate(workspace: Path, config: dict) -> dict:
         raise RuntimeError("CANN_BENCH_DIR is required")
     cann_dir = Path(os.environ["CANN_BENCH_DIR"]).expanduser().resolve()
     if not cann_dir.is_dir():
-        raise RuntimeError("CANN_BENCH_DIR must name the CANN-Bench 2.0.0 worktree")
+        raise RuntimeError("CANN_BENCH_DIR must name a CANN-Bench worktree")
     actual_ref = subprocess.run(["git", "-C", str(cann_dir), "rev-parse", "HEAD"],
                                 check=True, capture_output=True, text=True).stdout.strip()
-    if actual_ref != EXPECTED_CANN_REF and os.environ.get("ALLOW_TASK_REF_MISMATCH") != "1":
-        raise RuntimeError(f"CANN-Bench ref is {actual_ref}, expected {EXPECTED_CANN_REF}; "
+    expected_ref = str(config.get("expected_cann_ref") or "").strip()
+    if (expected_ref and actual_ref != expected_ref
+            and os.environ.get("ALLOW_TASK_REF_MISMATCH") != "1"):
+        raise RuntimeError(f"CANN-Bench ref is {actual_ref}, expected {expected_ref}; "
                            "baseline metadata differs across refs")
     python = os.environ.get("FK_ASCEND_PYTHON", sys.executable)
     report_root = workspace / config.get("reports_dir", ".cann_results")
@@ -197,7 +223,7 @@ def _evaluate(workspace: Path, config: dict) -> dict:
         "--timeout-per-operator", timeout,
         "--warmup", str(config.get("warmup", 3)),
         "--repeat", str(config.get("repeat", 5)),
-        "--perf-metric-strategy", "trace_view",
+        "--perf-metric-strategy", config.get("perf_metric_strategy", "trace_view"),
         "--reports-dir", str(reports),
     ]
     env = dict(os.environ)
@@ -215,17 +241,18 @@ def _evaluate(workspace: Path, config: dict) -> dict:
     report_path = _latest_report(reports)
     if report_path is None:
         tail = (reports / "evaluator.log").read_text(encoding="utf-8", errors="replace")[-4000:]
+        emit_artifact("cann/evaluator.log", (reports / "evaluator.log").read_bytes()[-1048576:])
         return {"correctness": {"pass": False,
                                 "error": f"CANN-Bench exited {rc} without a JSON report: {tail}"},
-                "performance": {}}
+                "performance": {}, "profiler": {"backend": backend, "status": "unavailable"}}
     raw = report_path.read_bytes()
     report = json.loads(raw)
-    result = report_to_eval(report)
-    artifacts = [emit_artifact("cann/official_report.json", raw)]
+    result = report_to_eval(report, config=config)
+    artifacts = [emit_artifact("cann/official_report.json", raw),
+                 emit_artifact("cann/evaluator.log",
+                               (reports / "evaluator.log").read_bytes()[-1048576:])]
     if rc:
-        result["correctness"].update({"pass": False,
-            "error": f"CANN-Bench evaluator exited {rc}; partial report is not a gate"})
-        result["performance"] = {}
+        evaluator_failure(result, rc)
     if backend == "msprof":
         result["profiler"], prof_artifacts = collect(reports, backend)
         artifacts.extend(prof_artifacts)

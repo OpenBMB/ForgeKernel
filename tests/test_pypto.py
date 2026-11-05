@@ -74,7 +74,7 @@ def test_swiglu_pypto_task_loads():
     task = load_task(repo_root() / "tasks/swiglu-pypto")
     assert task.language == "pypto"
     assert task.loop_language == "pypto"
-    assert task.arch == "ascend950"
+    assert task.arch == "ascend950pr"
     assert task.leaderboard.suite == "cann-bench"
     assert len(task.shapes) == 20
 

@@ -8,7 +8,9 @@ PYTHON="${FK_ASCEND_PYTHON:-python3}"
 export PATH="$(dirname "$PYTHON"):${PATH}"
 export PYTHONUNBUFFERED=1
 export PYTHONPATH="${CANN_BENCH_DIR:?CANN_BENCH_DIR is required}/src:${PYTHONPATH:-}"
-export PTO_TILE_LIB_CODE_PATH="${PTO_TILE_LIB_CODE_PATH:?PTO_TILE_LIB_CODE_PATH is required}"
+if [ -n "${PTO_TILE_LIB_CODE_PATH:-}" ]; then
+    export PTO_TILE_LIB_CODE_PATH
+fi
 
 TASK="${1:-help}"
 shift || true

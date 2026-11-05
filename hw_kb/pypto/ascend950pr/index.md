@@ -1,4 +1,4 @@
-# PyPTO on Ascend 950
+# PyPTO on Ascend 950PR
 
 This KB is for operator-agnostic, measured PyPTO/Ascend facts. It intentionally starts small: a candidate recipe is promoted only after an NPU probe verifies it.
 

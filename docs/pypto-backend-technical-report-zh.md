@@ -2,9 +2,9 @@
 
 > 对应分支 `feat/pypto-ascend` 的当前实现
 >
-> 运行平台 Ascend 950PR、CANN 9.2、PyPTO 0.3.0、torch_npu 2.13
+> 目标后端 PyPTO on Ascend，支持 910B/C、950PR/DT 等变体
 >
-> 评测任务 CANN-Bench 2.0.0，固定 commit `059cb61d…`
+> 文中的实测示例来自 Ascend 950PR、CANN 9.2、PyPTO 0.3.0、torch_npu 2.13
 >
 > 这份文档只讲 ForgeKernel 怎样接 Ascend，不代替华为的 CANN/PyPTO 文档。
 
@@ -47,7 +47,9 @@
 
 ## 3. 任务卡和两棵树
 
-`src/forgekernel/task.py` 在通用任务模型里加了 PyPTO 需要的几项声明。任务语言是 `pypto`，架构是 `ascend950`，榜单套件是 CANN-Bench，知识库指向 `hw_kb/pypto/<arch>`。任务本身只描述问题和评测方式，不描述某一次实验的机器状态。
+`src/forgekernel/task.py` 在通用任务模型里加了 PyPTO 需要的几项声明。任务语言是 `pypto`，架构是具体 Ascend 变体（如 `ascend950pr`），榜单套件是 CANN-Bench，知识库指向 `hw_kb/pypto/<arch>`。任务本身只描述问题和评测方式，不描述某一次实验的机器状态。
+
+硬件不是写死在代码里的。`arch` 记录具体变体，支持 `ascend910b`、`ascend910c`、`ascend950pr`、`ascend950dt` 以及后续的 `ascend*` 名称。知识库查找先找 `hw_kb/pypto/<arch>/`，没有精确树时回退到 `hw_kb/pypto/ascend/`；后一个目录只放变体无关的接口说明，不放别的变体的认证 recipe。需要的话，`loop.toml` 的 `kb_arch` 还可以单独指定知识库版本，而不改任务的目标硬件。
 
 `forge new` 创建 run 时会把任务卡复制进 run，交给 git 管理。之后即使有人修改 `tasks/<op>/`，已经存在的 run 也不会被追溯性改写。这个快照规则看起来笨，却让复现实验有了一个固定起点。
 
@@ -164,13 +166,13 @@ PyPTO 不会提交 NCU job，也不会重试“empty NCU”。milestone 只能�
 
 teacher 要把 Ascend 上测到的事实翻成可执行决策。buffer 预算、tile 形状、数据布局、DMA 和计算顺序、同步边界、shape 特化，都要落到 milestone 里。泛泛讲 CUDA 经验没有用，PyPTO 的 lowering 和 UB 预算不会因为一段熟悉的 GPU 说法就改变。
 
-student 能读 milestone、objective trajectory、`hw_kb/pypto/ascend950` 和本地允许的 PyPTO/PTO API。它能编辑 `kernel.py`，能写 `notes/*.py` 做单合同 probe，也能请求驱动提交 probe 或 commit。它不能读参照树、其他 run、密钥或未认证的参照源码。
+student 能读 milestone、objective trajectory、`hw_kb/pypto/<arch>` 和本地允许的 PyPTO/PTO API。它能编辑 `kernel.py`，能写 `notes/*.py` 做单合同 probe，也能请求驱动提交 probe 或 commit。它不能读参照树、其他 run、密钥或未认证的参照源码。
 
 M0 先把真实架构定下来，包括算子拆分、数据流、dtype、tile、buffer、core 角色、同步和 shape 分派。M1 以后只调 milestone 已经声明的 lever，不在拓扑之外自由发挥。M0 的 gate 看官方正确性和可测的架构合同，M1 才进入性能优化。失败的 probe、编译错误和 case 错误都会写回 student，避免 agent 自己给自己判对。
 
 ## 9. 知识库只收 probe 认过的机制
 
-PyPTO 的知识库在 `hw_kb/pypto/ascend950/`。现在收录的条目都和具体算子解耦，并且经过真实 NPU probe 认证。
+PyPTO 的知识库在 `hw_kb/pypto/<arch>/`。现在收录的条目都和具体算子解耦，并且经过真实 NPU probe 认证。
 
 | 条目 | 已验证的结论 |
 |---|---|
@@ -191,16 +193,23 @@ KB 的进入条件是 probe 认证。agent 解释得再顺，没有实测就只�
 
 ## 11. 运行配置和复现
 
-当前 PyPTO 任务显式声明 provider 和模型。
+teacher 和 student 的模型由任务配置决定，后端代码不写死具体模型。`[agent]` 给两者共同默认值，`[agent.teacher]` 和 `[agent.student]` 可以分别覆盖 provider、model、effort 和 timeout。
 
 ```toml
 [agent]
-provider = "deepseek"
-model = "deepseek-flash[1m]"
-effort = "max"
+provider = "native"
+model = "your-model"
+
+[agent.teacher]
+provider = "teacher-gateway"
+model = "your-teacher-model"
+
+[agent.student]
+provider = "student-gateway"
+model = "your-student-model"
 ```
 
-这样写是为了防住历史环境变量。之前 `.env` 里残留过 `TEACHER_BASEURL`，只改模型名时请求仍然会发到旧 endpoint。现在任务卡直接写 `provider = "deepseek"`，endpoint 走 DeepSeek 官方的 Anthropic 接口，密钥只从 `.env` 读取，不进入命令行、任务快照或 git。
+provider 名来自 `global_config/backends.toml`，key 由该表的 `key_env` 指向的变量提供。后端没有隐藏的 teacher 环境变量覆盖；换模型必须同时显式配置 provider。密钥只从环境变量读取，不进入命令行、任务快照或 git。
 
 一次 run 要留下这些复现信息。task snapshot，`run.json` 里的机器、task source 和创建时间，operator card 的 git HEAD，每次 job 的官方 JSON、日志和 artifacts，`status.jsonl` 和 `meta_status.jsonl`，以及 `best_confirmation.json` 和 `report.md`。少一项，后面就只能靠记忆补。
 
@@ -221,7 +230,7 @@ effort = "max"
 
 ## 13. 已知限制
 
-论文的 Ascend 结果是 910C、CANN-Bench 1.1.2、hosted scoring 和 8 个 Level-4 算子。当前环境是 950PR、CANN-Bench 2.0.0 和本地公开 case。硬件、榜单版本和评分方式都不同，这里的结果不能当作论文分数的复现。
+论文的 Ascend 结果是 910C、CANN-Bench 1.1.2、hosted scoring 和 8 个 Level-4 算子。当前实现支持多种 Ascend 变体，但具体 run 的硬件、榜单版本和评分方式由任务卡决定；本报告中的示例不能当作论文分数的复现。
 
 PyPTO 的编译和运行时行为强依赖 CANN、torch_npu 和 JIT 版本。升级以后，原来的 tile、view 和动态执行结论都要重新 probe。msprof 的 task row 也不等于 NCU 的 warp/stall 视角，这里没有 register、bank conflict 和 SASS 证据。
 
@@ -232,5 +241,5 @@ PyPTO 的编译和运行时行为强依赖 CANN、torch_npu 和 JIT 版本。升
 ## 相关文档
 
 - 两次真实优化尝试 [pypto-optimization-case-studies-zh.md](pypto-optimization-case-studies-zh.md)
-- 当前验证状态与证据索引 [ascend-agent-validation.md](ascend-agent-validation.md)
-- 迁移与运行交接 [../MIGRATION_PYPTO.md](../MIGRATION_PYPTO.md)
+- 边界与安全 [blackbox-mode.md](blackbox-mode.md)
+- 知识库使用与收割 [kb-harvest.md](kb-harvest.md)

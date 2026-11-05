@@ -15,6 +15,7 @@ import sys
 import tomllib
 import yaml
 
+from forgekernel import arch as arch_mod
 from forgekernel.paths import repo_root
 from forgekernel.task import load_task
 
@@ -25,6 +26,30 @@ def put(root: Path, rel: str, text: str, executable=False):
     p.write_text(text)
     if executable:
         p.chmod(0o755)
+
+
+def _agent_toml(args) -> str:
+    """Only write role settings the user explicitly chose."""
+    sections = []
+    common = []
+    if args.provider:
+        common.append(f'provider = {json.dumps(args.provider)}')
+    if args.student_model:
+        common.append(f'model = {json.dumps(args.student_model)}')
+    if args.student_effort:
+        common.append(f'effort = {json.dumps(args.student_effort)}')
+    if common:
+        sections.append('[agent]\n' + '\n'.join(common))
+    teacher = []
+    if args.teacher_provider:
+        teacher.append(f'provider = {json.dumps(args.teacher_provider)}')
+    if args.teacher_model:
+        teacher.append(f'model = {json.dumps(args.teacher_model)}')
+    if args.teacher_effort:
+        teacher.append(f'effort = {json.dumps(args.teacher_effort)}')
+    if teacher:
+        sections.append('[agent.teacher]\n' + '\n'.join(teacher))
+    return '\n'.join(sections) + ('\n' if sections else '')
 
 
 def problem(cases, task_dir, operator, entry, commit):
@@ -53,23 +78,32 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('task', type=Path)
     p.add_argument('--cann-bench-dir', type=Path, required=True)
-    p.add_argument('--level', default='level4')
+    p.add_argument('--level', default='tasks/level4',
+                   help='task root relative to the CANN-Bench worktree (default: tasks/level4)')
     p.add_argument('--operator-path', default='gqa')
     p.add_argument('--operator', default='GQA')
     p.add_argument('--entry', default='gqa')
-    p.add_argument('--arch', default='ascend950')
-    p.add_argument('--expected-cann-ref', default='059cb61d41b279ad021160517bd2a5f6b7a05e01')
+    p.add_argument('--arch', default='ascend950pr',
+                   help='target Ascend architecture, e.g. ascend910b, ascend910c, ascend950pr, ascend950dt')
+    p.add_argument('--hardware', default='',
+                   help='free-form hardware label (default: derived from --arch)')
+    p.add_argument('--expected-cann-ref', default='',
+                   help='pin the CANN-Bench commit; default: the worktree HEAD')
     p.add_argument('--forgekernel-root', type=Path, default=repo_root())
-    p.add_argument('--reference-mode', default='gqa-library',
-                   choices=('gqa-library',))
     p.add_argument('--target-ratio', type=float, default=1.05)
     p.add_argument('--hours', type=float, default=16)
     p.add_argument('--max-meta', type=int, default=4)
     p.add_argument('--oracle', choices=('blackbox', 'source'), default='blackbox')
-    p.add_argument('--student-model', default='deepseek-flash[1m]')
-    p.add_argument('--provider', default='deepseek')
-    p.add_argument('--pypto-source', default='/data/shwstone/Workspace/forgekernel-sources/pypto')
-    p.add_argument('--pto-isa', default='/data/shwstone/Workspace/forgekernel-sources/pto-isa')
+    p.add_argument('--student-model', default='')
+    p.add_argument('--provider', default='')
+    p.add_argument('--student-effort', default='')
+    p.add_argument('--teacher-model', default='')
+    p.add_argument('--teacher-provider', default='')
+    p.add_argument('--teacher-effort', default='')
+    p.add_argument('--pypto-source', default='')
+    p.add_argument('--pto-isa', default='')
+    p.add_argument('--dsl-source-dir', action='append', default=[],
+                   help='additional local source directory for the offline student (repeatable)')
     args = p.parse_args(argv)
     root = args.forgekernel_root.resolve()
     dest = args.task.resolve()
@@ -78,9 +112,17 @@ def main(argv=None):
     cann = args.cann_bench_dir.resolve()
     commit = subprocess.run(['git', '-C', str(cann), 'rev-parse', 'HEAD'],
                             check=True, capture_output=True, text=True).stdout.strip()
-    if commit != args.expected_cann_ref:
-        p.error(f'unsupported CANN-Bench commit: {commit}')
-    task_dir = f'{args.level}/{args.operator_path}'
+    expected_ref = args.expected_cann_ref or commit
+    if commit != expected_ref:
+        p.error(f'CANN-Bench HEAD is {commit}, expected {expected_ref}')
+    args.arch = arch_mod.canonical_arch(args.arch)
+    if not arch_mod.is_ascend_arch(args.arch):
+        p.error(f'not an Ascend architecture: {args.arch}')
+    hardware = args.hardware or arch_mod.hardware_label(args.arch)
+    level = args.level.strip('/')
+    if not level.startswith('tasks/'):
+        level = f'tasks/{level}'
+    task_dir = f'{level}/{args.operator_path}'
     cases = yaml.safe_load((cann / task_dir / 'cases.yaml').read_text())['cases']
     card, ref = dest / 'leaderboard/card', dest / 'leaderboard/ref'
     template = root / 'src/forgekernel/card_template'
@@ -105,11 +147,13 @@ def main(argv=None):
         'operator': args.operator, 'task_dir': task_dir, 'source_dir': '.',
         'warmup': 3, 'repeat': 5, 'profiler_backend': 'msprof',
         'perf_metric_strategy': 'kernel_details',
-        'timing_basis': 'cann_kernel_details'}, indent=2))
+        'timing_basis': 'cann_kernel_details',
+        'expected_cann_ref': expected_ref}, indent=2))
     put(ref, 'eval/cann_task.json', json.dumps({
         'operator': args.operator, 'task_dir': task_dir, 'source_dir': 'src',
         'warmup': 3, 'repeat': 5, 'profiler_backend': 'msprof',
-        'perf_metric_strategy': 'kernel_details', 'timing_basis': 'cann_kernel_details'}, indent=2))
+        'perf_metric_strategy': 'kernel_details', 'timing_basis': 'cann_kernel_details',
+        'expected_cann_ref': expected_ref}, indent=2))
     put(card, 'eval/leaderboard/problem.json', json.dumps(problem(cases, task_dir,
         args.operator, args.entry, commit), indent=2))
     signature = 'query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, ' \
@@ -143,7 +187,7 @@ recon_op = ""
 ref_mode = "ref"
 ref_name = "Huawei CANN fused-infer-attention library (exact version in report)"
 ref_shape = "{len(cases)} public {task_dir} cases"
-ref_hardware = "Ascend950PR"
+ref_hardware = {json.dumps(hardware)}
 ref_from_goal = "off"
 ref_price_op = ""
 precision_contract = "off"
@@ -156,7 +200,7 @@ job_env_preflight = "warn"
 timeline_probe = "off"
 stall_pricing = false
 orch_census = false
-dsl_source_dirs = [{json.dumps(args.pypto_source)}, {json.dumps(args.pto_isa)}]
+dsl_source_dirs = {json.dumps([p for p in [args.pypto_source, args.pto_isa, *args.dsl_source_dir] if p])}
 ''')
     put(card, 'README.md', f'''# {args.operator} — PyPTO on Ascend, CANN-Bench {task_dir}
 Frozen public cases are judged by official golden.py, not the library reference.
@@ -178,11 +222,7 @@ ref = "leaderboard/ref"
 [target]
 ratio = {args.target_ratio}
 timing = "device"
-[agent]
-provider = {json.dumps(args.provider)}
-model = {json.dumps(args.student_model)}
-effort = "max"
-[budget]
+{_agent_toml(args)}[budget]
 hours = {args.hours}
 max_meta = {args.max_meta}
 ''')

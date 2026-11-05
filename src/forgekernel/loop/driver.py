@@ -39,6 +39,7 @@ from forgekernel.loop.job_env import env_failure
 from forgekernel.loop import harness_guard, precision_gate
 from forgekernel.loop.kb_lint import lint_kb_dir
 from forgekernel.loop import lang_mode
+from forgekernel import arch as arch_mod
 from forgekernel.inner.trajectory import (
     GATE_WINDOW_DEFAULT,
     GATE_WINDOW_DEVICE,
@@ -221,7 +222,8 @@ class LoopContext:
     # Which hw_kb/<language>/<arch>/ tree this run reads AND writes -- see kb_read_dir. One
     # tree per architecture, no shared root (hw_kb/<language>/README.md): a recipe earned on
     # Hopper is not evidence about Blackwell, so a run sees its own tree only.
-    # From loop.toml [loop].kb_arch (or --kb-arch); "sm90" is the default.
+    # From loop.toml [loop].kb_arch (or --kb-arch); PyPTO defaults to the
+    # generic "ascend" tree when no exact variant is named.
     kb_arch: str = "sm90"
     # Which timing window every verdict reads: best, target stop, plateau, rollback
     # anchor, digest ranking. "device" (pipelined batch ≈ device time — the
@@ -660,7 +662,7 @@ def kb_read_dir(ctx: LoopContext) -> Path:
     construction. ``ctx.kb_dir`` stays the root: ``{KB_DIR}/TEMPLATE.md`` and the
     harvest are per-KB, not per-architecture.
     """
-    return Path(ctx.kb_dir) / ctx.kb_arch
+    return arch_mod.resolve_kb_dir(Path(ctx.kb_dir), ctx.language, ctx.kb_arch)
 
 
 def _meta_prompt(ctx: LoopContext, name: str) -> Path:

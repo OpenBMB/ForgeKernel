@@ -4,5 +4,6 @@
   "warmup": 3,
   "repeat": 5,
   "profiler_backend": "msprof",
-  "source_dir": "src"
+  "source_dir": "src",
+  "expected_cann_ref": "059cb61d41b279ad021160517bd2a5f6b7a05e01"
 }

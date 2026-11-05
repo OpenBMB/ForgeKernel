@@ -81,6 +81,7 @@ from forgekernel.window_contract import (
 from forgekernel.loop.kb_lint import derive_reference_tokens, lint_kb_dir
 from forgekernel.loop import lang_mode
 from forgekernel.profiling import backend_for
+from forgekernel import arch as arch_mod
 from forgekernel.paths import operators_dir
 from forgekernel.submit.jobs import (STATUS_LOST, STATUS_RUNNING,
                                      STATUS_SUCCEEDED, TRANSPORT_ERROR_MARKER,
@@ -2071,9 +2072,14 @@ EXIT_GOAL_REF_UNAVAILABLE = 21
 EXIT_GOAL_REF_FAILED = 22
 
 
-def _resolve_kb_arch(flag: str | None, cfg: dict) -> str:
-    """Which hw_kb/<language>/<arch>/ tree the run reads and writes: --kb-arch, else
-    loop.toml [loop].kb_arch, else sm90.
+def _resolve_kb_arch(flag: str | None, cfg: dict,
+                     language: str = "cutedsl") -> str:
+    """Which hw_kb/<language>/<arch>/ tree the run reads and writes.
+
+    Resolution order is --kb-arch, loop.toml [loop].kb_arch, then the
+    language default: the generic ``ascend`` tree for PyPTO, ``sm90`` for the
+    CuTe DSL mode. PyPTO architecture names are canonicalized so ``ascend950``
+    from an older card still resolves to ``ascend950pr``.
 
     Mirrors _resolve_language. hw_kb/ is one tree per architecture with no
     shared root, and a run sees exactly one of them (driver.kb_read_dir): the
@@ -2083,15 +2089,19 @@ def _resolve_kb_arch(flag: str | None, cfg: dict) -> str:
     reads exactly what it always did. Validated against the tree on disk by
     _kb_arch_problem, not against a list spelled here: the trees are the list.
     """
-    chosen = flag or cfg.get("loop", {}).get("kb_arch") or KB_ARCH_DEFAULT
+    default = "ascend" if lang_mode.is_pypto(language) else KB_ARCH_DEFAULT
+    chosen = flag or cfg.get("loop", {}).get("kb_arch") or default
+    if lang_mode.is_pypto(language):
+        chosen = arch_mod.canonical_arch(chosen)
     if not re.fullmatch(r"[a-z][a-z0-9_]*", chosen):
         raise SystemExit(
-            f"kb_arch must be a plain directory name like sm90 / sm100, got {chosen!r} "
-            f"(--kb-arch / loop.toml [loop].kb_arch)")
+            f"kb_arch must be a plain directory name like sm90 / ascend950pr, got "
+            f"{chosen!r} (--kb-arch / loop.toml [loop].kb_arch)")
     return chosen
 
 
-def _kb_arch_problem(kb_dir: Path, kb_arch: str) -> str | None:
+def _kb_arch_problem(kb_dir: Path, kb_arch: str,
+                     language: str = "cutedsl") -> str | None:
     """Why ``hw_kb/<language>/<kb_arch>/`` cannot be a run's KB tree, or None.
 
     Fail closed at launch, not at the first KB: citation hours later: a tree
@@ -2099,13 +2109,14 @@ def _kb_arch_problem(kb_dir: Path, kb_arch: str) -> str | None:
     prompt registers the recipe in ``{KB_DIR}/{KB_ARCH}/index.md``), and a typo'd
     arch would otherwise start a run that reads nothing and files its recipes
     into a directory nobody indexes."""
-    tree = kb_dir / kb_arch
+    tree = arch_mod.resolve_kb_dir(kb_dir, language, kb_arch)
     if not tree.is_dir():
         have = sorted(d.name for d in kb_dir.iterdir()
                       if d.is_dir() and (d / "index.md").is_file()) if kb_dir.is_dir() else []
-        return (f"hw_kb/{kb_dir.name} has no {kb_arch}/ tree (available: {', '.join(have) or 'none'}) "
-                f"— set loop.toml [loop].kb_arch / --kb-arch to one of them, or open the "
-                f"tree with an index.md per hw_kb/<language>/README.md")
+        return (f"hw_kb/{kb_dir.name} has no {kb_arch}/ tree (available: "
+                f"{', '.join(have) or 'none'}) — set loop.toml [loop].kb_arch / "
+                f"--kb-arch to one of them, or add a generic hw_kb/{kb_dir.name}/ascend/ "
+                f"tree with an index.md")
     if not (tree / "index.md").is_file():
         return (f"{tree} has no index.md — the prompts register every recipe there; "
                 f"open the tree per hw_kb/<language>/README.md before pointing a run at it")
@@ -2210,7 +2221,7 @@ def _main(argv: list[str] | None = None) -> int:
                    help="kernel implementation language (default: loop.toml [loop].language or cutedsl)")
     p.add_argument("--kb-arch", default=None,
                    help="which hw_kb/<language>/<arch>/ tree the run reads and files recipes into "
-                        "(default: loop.toml [loop].kb_arch, else sm90)")
+                        "(default: loop.toml [loop].kb_arch, else sm90; PyPTO: ascend)")
     p.add_argument("--hours", type=float, default=4.0, help="inner-loop wall-clock budget")
     p.add_argument("--target-ms", type=float, default=None,
                    help="stop threshold; default: derived from the archived ref "
@@ -2420,9 +2431,14 @@ def _main(argv: list[str] | None = None) -> int:
         sys.stderr.write(f"[loop] error: {language_problem}\n")
         return EXIT_LANGUAGE_MISMATCH
     gate_window = _resolve_gate_window(args.gate_window, cfg)
-    kb_arch = _resolve_kb_arch(args.kb_arch, cfg)
+    kb_arch = _resolve_kb_arch(args.kb_arch, cfg, language)
     kb_root = root / lang_mode.kb_root_name(language)
-    kb_arch_problem = _kb_arch_problem(kb_root, kb_arch)
+    # A future Ascend variant may have no exact tree yet. Read and write the
+    # generic tree in that case, so the prompts' {KB_ARCH} path is real.
+    resolved_kb = arch_mod.resolve_kb_dir(kb_root, language, kb_arch)
+    if resolved_kb.is_dir() and resolved_kb.name != kb_arch:
+        kb_arch = resolved_kb.name
+    kb_arch_problem = _kb_arch_problem(kb_root, kb_arch, language)
     if kb_arch_problem and not args.dry_run:
         sys.stderr.write(f"[loop] error: kb_arch = {kb_arch!r}: {kb_arch_problem}\n")
         return EXIT_KB_ARCH_MISSING
@@ -2572,7 +2588,8 @@ def _main(argv: list[str] | None = None) -> int:
                 deny_write=tuple(goal_ref_mod.session_read_only_paths(op_dir))),
             make_backend=goal_ref_backend(args.op, cfg, args.git_name, args.git_email),
             settings=goal_settings,
-            kb_dirs=[str(kb_root / kb_arch)] if (kb_root / kb_arch).is_dir() else [],
+            kb_dirs=[str(arch_mod.resolve_kb_dir(kb_root, language, kb_arch))]
+                    if arch_mod.resolve_kb_dir(kb_root, language, kb_arch).is_dir() else [],
             heartbeat_s=args.agent_heartbeat_s or 600.0)
         gen.read_dirs = [str(p) for p in gen.policy.dsl_source_dirs]
         try:

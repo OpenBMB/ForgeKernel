@@ -25,6 +25,7 @@ import subprocess
 import tomllib
 from pathlib import Path
 
+from forgekernel import arch as arch_mod
 from forgekernel import leaderboard as lbmod
 from forgekernel import scaffold, sealref
 from forgekernel.paths import repo_root, template_dir
@@ -356,7 +357,7 @@ def write_loop_toml(run, task, op_dir: Path, *, deny: list[str], ncu: bool = Tru
             'recon_op    = ""            # no reference yet: a /goal session writes one',
             'ref_from_goal = "auto"',
             f'ref_shape   = {json.dumps(shapes)}',
-            f'ref_hardware = "{task.arch}"',
+            f'ref_hardware = "{arch_mod.hardware_label(task.arch)}"',
         ]
     else:
         rt = ref_tree(task.name)
@@ -373,7 +374,7 @@ def write_loop_toml(run, task, op_dir: Path, *, deny: list[str], ncu: bool = Tru
             "ref_in_job         = true",
             f"ref_name           = {json.dumps(name)}",
             f"ref_shape          = {json.dumps(shapes)}",
-            f'ref_hardware       = "{task.arch}"',
+            f'ref_hardware       = "{arch_mod.hardware_label(task.arch)}"',
             'arch_ref_mode      = "sealref"',
             f'arch_ref_submit_op = "{rt}"',
             f"arch_ref_name      = {json.dumps(name)}",

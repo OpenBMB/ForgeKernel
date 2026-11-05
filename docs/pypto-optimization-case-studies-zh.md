@@ -2,7 +2,7 @@
 
 > 平台 Ascend 950PR、CANN 9.2、PyPTO 0.3.0、CANN-Bench 2.0.0
 >
-> 模型 teacher 和 student 都是 `deepseek-flash[1m]`，全流程走 DeepSeek
+> 模型配置来自任务配置，不是后端写死的默认值
 >
 > 两次 campaign 都在当前环境里跑完，不能当作论文 910C hosted 分数的复现。
 
@@ -236,5 +236,4 @@ SwiGlu 还可以继续找下一个几何平均尾部。新的薄维或极窄维 
 ## 相关文档
 
 - PyPTO 后端架构 [pypto-backend-technical-report-zh.md](pypto-backend-technical-report-zh.md)
-- 验证状态与完整证据索引 [ascend-agent-validation.md](ascend-agent-validation.md)
-- NPU 接口 KB [../hw_kb/pypto/ascend950/index.md](../hw_kb/pypto/ascend950/index.md)
+- NPU 接口 KB [../hw_kb/pypto/ascend950pr/index.md](../hw_kb/pypto/ascend950pr/index.md)

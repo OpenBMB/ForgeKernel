@@ -12,8 +12,8 @@
 ``task.toml``::
 
     [task]
-    language = "cutedsl"            # cutedsl | cuda
-    arch     = "sm100"              # target GPU; also picks hw_kb/<language>/<arch>/
+    language = "cutedsl"            # cutedsl | cuda | pypto
+    arch     = "sm100"              # target GPU/accelerator; also picks hw_kb/<language>/<arch>/
 
     [reference]                     # leave the whole table out: a /goal session writes one
     run    = "reference/run.py:run" # the callable the harness times and checks against
@@ -71,6 +71,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from forgekernel import arch as arch_mod
 from forgekernel import provider as provider_mod
 from forgekernel.paths import global_config_dir, repo_root
 
@@ -252,11 +253,14 @@ def load_task(task_dir: str | Path, *, kb_root: Path | None = None,
     if language not in LANGUAGES:
         problems.append(f"[task] language must be one of {list(LANGUAGES)}, got {language!r}")
     arch = t.get("arch")
+    if isinstance(arch, str):
+        arch = arch_mod.canonical_arch(arch)
     nvidia_arch = isinstance(arch, str) and re.match(r"^sm\d+[a-z]?$", arch)
-    ascend_arch = language == "pypto" and isinstance(arch, str) and re.match(r"^ascend\d+[a-z]?$", arch)
+    ascend_arch = language == "pypto" and arch_mod.is_ascend_arch(arch)
     if not (nvidia_arch or ascend_arch):
         problems.append(f"[task] arch must name an NVIDIA architecture such as \"sm90\", or "
-                        f"an Ascend architecture such as \"ascend950\" for pypto, got {arch!r}")
+                        f"an Ascend architecture such as {arch_mod.variants()} "
+                        f"for pypto, got {arch!r}")
     elif language in LANGUAGES:
         kb = _kb_dir(kb_root, language, arch)
         if not kb.is_dir():
@@ -459,7 +463,8 @@ def _table(cfg: dict, key: str, problems: list[str]) -> dict:
 def _kb_dir(kb_root: Path | None, language: str, arch: str) -> Path:
     from forgekernel.loop import lang_mode
     root = kb_root if kb_root is not None else repo_root()
-    return Path(root) / lang_mode.kb_root_name(LOOP_LANGUAGE[language]) / arch
+    language_root = Path(root) / lang_mode.kb_root_name(LOOP_LANGUAGE[language])
+    return arch_mod.resolve_kb_dir(language_root, LOOP_LANGUAGE[language], arch)
 
 
 def _inside(d: Path, rel: object, what: str, problems: list[str]) -> Path | None:

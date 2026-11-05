@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "${SCRIPT_DIR}/remote_env.sh"
 
 ACTUAL_REF="$(git -C "${CANN_BENCH_DIR}" rev-parse HEAD)"
-EXPECTED_REF=059cb61d41b279ad021160517bd2a5f6b7a05e01
+EXPECTED_REF="${EXPECTED_TASK_REF:-059cb61d41b279ad021160517bd2a5f6b7a05e01}"
 if [ "${ACTUAL_REF}" != "${EXPECTED_REF}" ]; then
     echo "CANN-Bench ref mismatch: ${ACTUAL_REF}" >&2
     exit 1

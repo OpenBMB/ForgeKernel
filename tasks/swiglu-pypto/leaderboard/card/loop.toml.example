@@ -1,7 +1,7 @@
 # Read by forge run; machine-specific oracle paths are filled from the frozen ref tree.
 [loop]
 language = "pypto"
-kb_arch = "ascend950"
+kb_arch = "ascend950pr"
 gate_window = "device"
 oracle_mode = "source"
 recon_op = ""
@@ -21,4 +21,5 @@ job_env_preflight = "warn"
 timeline_probe = "off"
 stall_pricing = false
 orch_census = false
-dsl_source_dirs = ["/data/shwstone/Workspace/forgekernel-sources/pypto", "/data/shwstone/Workspace/forgekernel-sources/pto-isa"]
+# Optional local PyPTO / PTO source trees for an offline student.
+# dsl_source_dirs = ["/path/to/pypto", "/path/to/pto-isa"]

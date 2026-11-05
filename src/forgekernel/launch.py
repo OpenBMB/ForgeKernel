@@ -684,11 +684,10 @@ def write_report(run, task, rc: int) -> Path:
                       "- per-case anchors, scores and jitter: best_confirmation.json → jobs → cann_bench",
                       "- raw report / profiler CSVs: operators/*/.jobs/<job>/artifacts/cann/"]
     if task.language == "pypto":
-        from forgekernel.agents import model_for_role
         lines += ["", "## Campaign protocol", "",
                   f"- architecture: {task.arch}",
-                  f"- teacher: {model_for_role(task.teacher, 'teacher')}; student: "
-                  f"{model_for_role(task.student, 'student')}",
+                  f"- teacher: {task.teacher.model} ({task.teacher.provider}); student: "
+                  f"{task.student.model} ({task.student.provider})",
                   f"- target: ratio={task.target.ratio}, ms={task.target.ms}; "
                   f"budget: {task.budget.hours}h / {task.budget.max_meta} meta step(s)",
                   f"- task snapshot: {run.task_dir}",

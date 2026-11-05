@@ -11,7 +11,7 @@ import zlib
 
 import pytest
 
-from forgekernel import agents, profiling
+from forgekernel import profiling
 from forgekernel.baseline_cli import parse_ref_stdout
 from forgekernel.evidence import archive_job_artifacts
 from forgekernel.inner.trajectory import IterationRecord, append_record, load_records, build_digest
@@ -175,20 +175,6 @@ def test_backend_and_channel_contract():
     assert profiling.channel_violations('[VERIFY: ncu-derived]', 'msprof')
     assert not profiling.channel_violations('[VERIFY: msprof-direct]', 'msprof')
     assert profiling.channel_violations('[VERIFY: msprof-direct]', 'cann_trace_view')
-
-
-def test_teacher_env_model_routing_does_not_put_key_in_command():
-    spec = SimpleNamespace(backend='claude', provider='native', model='student-model',
-                           effort='', timeout_s=100)
-    env = {'TEACHER_MODEL': 'k3.1pro', 'TEACHER_BASEURL': 'https://teacher.invalid',
-           'TEACHER_API_KEY': 'never-log-this-key'}
-    teacher = agents.agent_command(spec, 'teacher', env)
-    student = agents.agent_command(spec, 'student', env)
-    assert 'k3.1pro' in teacher and 'FK_PROVIDER_KEY_ENV=TEACHER_API_KEY' in teacher
-    assert 'never-log-this-key' not in teacher
-    assert 'k3.1pro' not in student and 'student-model' in student
-    with pytest.raises(ValueError, match='together'):
-        agents.agent_command(spec, 'teacher', {'TEACHER_MODEL': 'k3.1pro'})
 
 
 def test_all_pypto_overlays_are_operator_agnostic():

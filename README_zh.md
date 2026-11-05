@@ -67,7 +67,9 @@ ForgeKernel 属于 **Forge 家族**，同一家族的项目还有
 [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) CLI（已登录，或设置
 `ANTHROPIC_API_KEY`）；任务没有参照时还需要 tmux。GPU 机器（同一台或一台 ssh 主机）：NVIDIA
 Hopper（`sm90`）或 Blackwell（`sm100`）GPU，`python3` 带 CUDA 版 PyTorch，CuTe DSL 任务还需要
-`nvidia-cutlass-dsl`；建议装 Nsight Compute（`ncu`），没有它时运行只按计时推进。
+`nvidia-cutlass-dsl`；建议装 Nsight Compute（`ncu`），没有它时运行只按计时推进。PyPTO 任务则
+使用装有 CANN、PyPTO 和 `torch_npu` 的 Ascend 主机；任务的 `arch` 选择具体变体
+（`ascend910b`、`ascend910c`、`ascend950pr`、`ascend950dt`）。
 
 **1. 安装**
 
@@ -137,7 +139,7 @@ forge run .artifacts/rmsnorm_<id>                       # 中断后续跑
 | arch agent | *teacher*（`task.toml` 的 `[agent.teacher]`） |
 | coding agent | *student*（`[agent.student]`） |
 | campaign | 一次运行，`.artifacts/<op>_<id>/` |
-| 知识库 | `hw_kb/cutedsl/`（CuTe DSL）、`hw_kb/cuda/`（CUDA C++） |
+| 知识库 | `hw_kb/cutedsl/`（CuTe DSL）、`hw_kb/cuda/`（CUDA C++）、`hw_kb/pypto/`（Ascend） |
 
 > 设计说明 → [docs/design/milestone-distillation.md](docs/design/milestone-distillation.md)，
 > milestone 格式 → [docs/milestones-template.md](docs/milestones-template.md)
@@ -194,6 +196,13 @@ forge export .artifacts/rms_<id> --out solution.json
 任务冻结了榜单上的题目：输入、容差与计时都按榜单自己的评测代码来。
 → [docs/leaderboards.md](docs/leaderboards.md)
 
+## Ascend 上的 PyPTO
+
+`language = "pypto"` 让同一套 teacher/student 循环跑在 CANN-Bench 上。后端保留官方评测、
+msprof 证据、密封参照和确认协议，并按任务的 `arch` 选择硬件知识库。详见
+[后端技术报告](docs/pypto-backend-technical-report-zh.md)和
+[优化案例报告](docs/pypto-optimization-case-studies-zh.md)。
+
 ## 算子代码
 
 [`kernels/`](kernels/) 公开了论文里 ForgeKernel 生成的 kernel（24 个，CuTe DSL，H100 与 B200），
@@ -241,7 +250,7 @@ tasks/               <op>/：task.toml、description.md、shapes.json、referenc
 skills/              agent 用的工具，每个一份 SKILL.md 加脚本，每轮开始前镜像到
                      agent 工作目录的 .claude/skills/
 meta/                teacher 与 student 的 prompt（meta/cuda/：CUDA C++）
-hw_kb/               硬件知识库（cutedsl/、cuda/），按 GPU 架构组织
+hw_kb/               硬件知识库（cutedsl/、cuda/、pypto/），按加速器架构组织
 docs/                设计说明、milestone 模板、榜单、知识库收割
 scripts/             agent 启动脚本、/goal 驱动、自进化
 tests/               pytest 测试（只需 CPU）

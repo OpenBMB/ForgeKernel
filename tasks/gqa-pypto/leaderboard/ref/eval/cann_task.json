@@ -6,5 +6,6 @@
   "repeat": 5,
   "profiler_backend": "msprof",
   "perf_metric_strategy": "kernel_details",
-  "timing_basis": "cann_kernel_details"
+  "timing_basis": "cann_kernel_details",
+  "expected_cann_ref": "059cb61d41b279ad021160517bd2a5f6b7a05e01"
 }

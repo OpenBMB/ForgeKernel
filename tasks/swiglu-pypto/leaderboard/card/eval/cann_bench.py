@@ -23,7 +23,6 @@ import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ascend_profiler import collect, emit_artifact
 
-EXPECTED_CANN_REF = "059cb61d41b279ad021160517bd2a5f6b7a05e01"
 BASIS = "cann_trace_view"
 
 
@@ -187,11 +186,13 @@ def _evaluate(workspace: Path, config: dict) -> dict:
         raise RuntimeError("CANN_BENCH_DIR is required")
     cann_dir = Path(os.environ["CANN_BENCH_DIR"]).expanduser().resolve()
     if not cann_dir.is_dir():
-        raise RuntimeError("CANN_BENCH_DIR must name the CANN-Bench 2.0.0 worktree")
+        raise RuntimeError("CANN_BENCH_DIR must name a CANN-Bench worktree")
     actual_ref = subprocess.run(["git", "-C", str(cann_dir), "rev-parse", "HEAD"],
                                 check=True, capture_output=True, text=True).stdout.strip()
-    if actual_ref != EXPECTED_CANN_REF and os.environ.get("ALLOW_TASK_REF_MISMATCH") != "1":
-        raise RuntimeError(f"CANN-Bench ref is {actual_ref}, expected {EXPECTED_CANN_REF}; "
+    expected_ref = str(config.get("expected_cann_ref") or "").strip()
+    if (expected_ref and actual_ref != expected_ref
+            and os.environ.get("ALLOW_TASK_REF_MISMATCH") != "1"):
+        raise RuntimeError(f"CANN-Bench ref is {actual_ref}, expected {expected_ref}; "
                            "baseline metadata differs across refs")
     python = os.environ.get("FK_ASCEND_PYTHON", sys.executable)
     report_root = workspace / config.get("reports_dir", ".cann_results")

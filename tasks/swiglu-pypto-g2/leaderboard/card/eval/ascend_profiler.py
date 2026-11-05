@@ -57,7 +57,7 @@ def parse_kernel_csv(text: str) -> dict:
         k["launches"] += 1
         k["total_us"] += us
         for key, aliases in (("task_types", ("Type", "Task Type")),
-                             ("block_dims", ("Block Dim", "Block Dim(num)"))):
+                             ("block_dims", ("Block Dim", "Block Dim(num)", "Block Num"))):
             value = next((row[a] for a in aliases if row.get(a)), None)
             if value is not None and value not in k[key]:
                 k[key].append(value)

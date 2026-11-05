@@ -1,7 +1,7 @@
 # Provenance: `pypto-operand-tile-construction`
 
 Human-side evidence for the recipe
-`hw_kb/pypto/ascend950/pypto-operand-tile-construction.md`. Not in any agent
+`hw_kb/pypto/ascend950pr/pypto-operand-tile-construction.md`. Not in any agent
 read set.
 
 ## Mechanism and public contract
