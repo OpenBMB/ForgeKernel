@@ -241,5 +241,6 @@ PyPTO 的编译和运行时行为强依赖 CANN、torch_npu 和 JIT 版本。升
 ## 相关文档
 
 - 两次真实优化尝试 [pypto-optimization-case-studies-zh.md](pypto-optimization-case-studies-zh.md)
+- GQA 编译代价分析 [pypto-gqa-compile-cost-zh.md](pypto-gqa-compile-cost-zh.md)
 - 边界与安全 [blackbox-mode.md](blackbox-mode.md)
 - 知识库使用与收割 [kb-harvest.md](kb-harvest.md)

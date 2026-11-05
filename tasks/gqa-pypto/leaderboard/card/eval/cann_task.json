@@ -7,5 +7,35 @@
   "profiler_backend": "msprof",
   "perf_metric_strategy": "kernel_details",
   "timing_basis": "cann_kernel_details",
-  "expected_cann_ref": "059cb61d41b279ad021160517bd2a5f6b7a05e01"
+  "expected_cann_ref": "059cb61d41b279ad021160517bd2a5f6b7a05e01",
+  "cases": [
+    "gqa_1",
+    "gqa_2",
+    "gqa_3",
+    "gqa_4",
+    "gqa_5",
+    "gqa_6",
+    "gqa_7",
+    "gqa_8",
+    "gqa_9",
+    "gqa_10",
+    "gqa_11",
+    "gqa_12",
+    "gqa_13",
+    "gqa_14",
+    "gqa_15",
+    "gqa_16",
+    "gqa_17",
+    "gqa_18",
+    "gqa_19",
+    "gqa_20"
+  ],
+  "scout_cases": [
+    "gqa_1",
+    "gqa_5",
+    "gqa_8",
+    "gqa_11",
+    "gqa_16"
+  ],
+  "case_filter_flag": ""
 }

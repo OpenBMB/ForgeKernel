@@ -27,6 +27,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 # Also importable by CPU-only tests without installing the card as a package.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -142,6 +143,42 @@ def report_to_eval(report: dict, *, config: dict | None = None) -> dict:
                                 "trace_view": (c.get("op_times") or {}).get("trace_view")}
                                for c in cases]},
     }
+
+
+def case_scope(config: dict, requested: str | None) -> dict:
+    """Which cases this job evaluates, as evaluator argv plus a scope declaration.
+
+    Every case of a shape-specialized operator is its own JIT compile, so a
+    20-case job pays 20 compiles whether the question needs them or not. That is
+    what made GQA uniterable: a single architecture question cost a full gate, and
+    a few compiles exhausted an outer-loop budget. A scout job answers the
+    question on a handful of representative cases instead.
+
+    Two things keep this from becoming a cheap way to claim a win. The card must
+    declare its evaluator's case-filter flag -- this adapter does not guess a
+    vendor CLI contract, and without the declaration a narrowed job is refused
+    rather than silently run whole. And the returned ``scope`` travels into the
+    eval JSON, where loop/parse.py already refuses any reading that carries one:
+    a subset is evidence for the teacher, never a gate.
+    """
+    names = [c.strip() for c in str(requested or "").split(",") if c.strip()]
+    if not names:
+        return {"argv": [], "n": 0, "scope": None}
+    flag = str(config.get("case_filter_flag") or "").strip()
+    if not flag:
+        raise RuntimeError(
+            "FK_CANN_CASES asked for a subset but eval/cann_task.json declares no "
+            "case_filter_flag: add the flag this CANN-Bench build uses to select "
+            "cases (verify it on hardware first) — refusing to run the full set "
+            "under a name that says otherwise")
+    known = [str(c) for c in config.get("cases") or []]
+    if known and (unknown := [n for n in names if n not in known]):
+        raise RuntimeError(f"unknown case id(s) {unknown}; this task declares {known}")
+    total = len(known) or None
+    return {"argv": [flag, ",".join(names)], "n": len(names),
+            "scope": {"workloads": len(names), "of": total or "unknown",
+                      "cases": names, "rep": "scout",
+                      "why": "subset for architecture pricing; not a gate reading"}}
 
 
 class MeasurementUnavailable(Exception):
@@ -262,6 +299,8 @@ def _evaluate(workspace: Path, config: dict) -> dict:
         "--perf-metric-strategy", config.get("perf_metric_strategy", "trace_view"),
         "--reports-dir", str(reports),
     ]
+    scope = case_scope(config, os.environ.get("FK_CANN_CASES"))
+    cmd += scope["argv"]
     env = dict(os.environ)
     env["PYTHONPATH"] = str(cann_dir / "src") + (
         os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
@@ -273,14 +312,25 @@ def _evaluate(workspace: Path, config: dict) -> dict:
     print("[cann-adapter] previous candidate removal:",
           (removed.stdout + removed.stderr).strip()[-500:], flush=True)
     print("[cann-adapter]", " ".join(cmd), flush=True)
+    # A job's wall clock is the only cost reading that is always available, and
+    # without it a compile-bound campaign and a slow kernel are indistinguishable
+    # from the outside: the GQA attempt lost outer-loop budget to JIT compiles that
+    # left no trace anywhere a diagnosis could read. Written whatever the outcome,
+    # so a timed-out or crashed job still says where its time went.
+    started = time.monotonic()
     rc = _run_logged(cmd, cwd=cann_dir, env=env, log=reports / "evaluator.log")
+    cost = {"evaluator_seconds": round(time.monotonic() - started, 1),
+            "budget_seconds": int(timeout), "cases_requested": scope["n"] or "all",
+            "note": "wall clock, build and device time together; a per-phase split "
+                    "needs a compile hook certified on hardware"}
     report_path = _latest_report(reports)
     if report_path is None:
         tail = (reports / "evaluator.log").read_text(encoding="utf-8", errors="replace")[-4000:]
         emit_artifact("cann/evaluator.log", (reports / "evaluator.log").read_bytes()[-1048576:])
         return {"correctness": {"pass": False,
                                 "error": f"CANN-Bench exited {rc} without a JSON report: {tail}"},
-                "performance": {}, "profiler": {"backend": backend, "status": "unavailable"}}
+                "performance": {}, "cann_bench": {"cost": cost, "case_scope": scope["scope"]},
+                "profiler": {"backend": backend, "status": "unavailable"}}
     raw = report_path.read_bytes()
     report = json.loads(raw)
     result = report_to_eval(report, config=config)
@@ -292,8 +342,14 @@ def _evaluate(workspace: Path, config: dict) -> dict:
     if backend == "msprof":
         result["profiler"], prof_artifacts = collect(reports, backend)
         artifacts.extend(prof_artifacts)
+    if scope["scope"]:
+        # A subset is a pricing reading and must never clear a gate. loop/parse.py
+        # refuses any eval JSON carrying workload_scope, so this is the existing
+        # guard rather than a second rule that could drift from it.
+        result["workload_scope"] = scope["scope"]
     result["cann_bench"].update({"report": str(report_path), "evaluator_rc": rc,
-                                  "commit": actual_ref, "artifacts": artifacts})
+                                  "commit": actual_ref, "artifacts": artifacts,
+                                  "cost": cost, "case_scope": scope["scope"]})
     (reports / "forge_eval.json").write_text(json.dumps(result, indent=2) + "\n",
                                               encoding="utf-8")
     return result

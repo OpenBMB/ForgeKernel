@@ -25,12 +25,19 @@ echo "  CANN:     $CANN_BENCH_DIR"
 
 run_with_timeout() {
     echo "[gpu_entry.sh] timeout=${TASK_TIMEOUT}s"
+    local started=$SECONDS
     set +e
-    timeout --signal=KILL "$TASK_TIMEOUT" "$@"
+    # SIGTERM first so the adapter can flush its log and its cost line; KILL only
+    # if it ignores that. A bare KILL discarded everything, which is how a probe
+    # that spent forty minutes in JIT came back saying nothing about where the
+    # time went -- the one fact needed to decide whether to narrow the job.
+    timeout --signal=TERM --kill-after=30 "$TASK_TIMEOUT" "$@"
     local rc=$?
     set -e
-    if [ "$rc" -eq 137 ]; then
-        echo "[gpu_entry.sh] KILLED: task exceeded ${TASK_TIMEOUT}s timeout"
+    if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ] || [ "$rc" -eq 143 ]; then
+        echo "[gpu_entry.sh] TIMEOUT after $((SECONDS - started))s of ${TASK_TIMEOUT}s" \
+             "(task=$TASK, signal rc=$rc). The log above is the only record of which" \
+             "phase consumed it: JIT compilation and device evaluation share this budget."
         exit 137
     fi
     return "$rc"
