@@ -512,3 +512,108 @@ def test_gpu_entry_separates_a_scout_task_from_a_gate_task(card, tmp_path):
     probe = run("cmd", "true", extra={"FK_CANN_CASES": "scout"})
     assert "ADAPTER-SAW" not in probe  # the probe's own command saw it, not the entry
     assert "task=cmd finished" in probe
+
+
+# --- the host validation script's own correctness ----------------------------------
+
+# A stand-in for CANN-Bench's loader: it walks the bench root it is given, so a tree
+# with two operators yields both their rows with the ids the real loader produces.
+STUB_CANN_LOADER = '''\
+import json
+from pathlib import Path
+from types import SimpleNamespace
+import yaml
+
+class CannCaseLoader:
+    def __init__(self, tasks_root=None):
+        self.root = Path(tasks_root)
+
+    def scan_all(self):
+        baseline = {}
+        for meta in self.root.glob("metadata/*.json"):
+            baseline = json.loads(meta.read_text())
+        cases = []
+        for path in sorted(self.root.glob("*/*/cases.yaml")):
+            op_dir = path.parent
+            rel = op_dir.relative_to(self.root).as_posix()
+            level, name = rel.split("/", 1)
+            for raw in yaml.safe_load(path.read_text())["cases"]:
+                number = raw["case_id"]
+                perf = ((baseline.get(level) or {}).get(name) or {}).get(str(number)) or {}
+                cases.append(SimpleNamespace(
+                    case_id=f"{rel}_{number}", rel_path=rel, operator=raw["operator"],
+                    case_num=number, input_shapes=raw["input_shape"],
+                    dtypes=raw["dtype"], attrs=raw.get("attrs") or {},
+                    value_ranges=raw.get("value_range") or [],
+                    baseline_perf_us=perf.get("baseline_perf_us"),
+                    t_hw_us=perf.get("t_hw_us")))
+        return cases
+'''
+
+
+def _validate_script():
+    path = repo_root() / "scripts/validate_pypto_scout.py"
+    spec = importlib.util.spec_from_file_location("validate_pypto_scout", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _bench_with_two_operators(root: Path) -> None:
+    """level4/gqa and level4/mla, both numbered 1..20, with different shapes."""
+    for name in ("gqa", "mla"):
+        op = root / f"tasks/level4/{name}"
+        op.mkdir(parents=True)
+        (op / "proto.yaml").write_text(f"operator:\n  name: {name.upper()}\n  difficulty: L4\n")
+        (op / "golden.py").write_text("# official golden\n")
+        cases = []
+        for number in range(1, 21):
+            shapes = ([[9, 9, 9, 9]] * 3 if name == "mla"
+                      else [[2, 128, 32, 128], [2, 128, 8, 128], [2, 128, 8, 128]])
+            cases.append({"operator": name.upper(), "case_id": number,
+                          "input_shape": shapes, "dtype": ["float16"] * 3,
+                          "attrs": {"is_causal": True}, "value_range": [-1, 1],
+                          "note": f"{name} case {number}"})
+        (op / "cases.yaml").write_text(yaml.safe_dump({"cases": cases}, sort_keys=False))
+    metadata = root / "tasks/metadata"
+    metadata.mkdir(parents=True)
+    (metadata / "910b2.json").write_text(json.dumps({"level4": {
+        name: {str(n): {"baseline_perf_us": 100.0 + n, "t_hw_us": 10.0 + n}
+               for n in range(1, 21)} for name in ("gqa", "mla")}}))
+
+
+def test_the_validation_script_compares_only_the_configured_operator(tmp_path, monkeypatch,
+                                                                    capsys):
+    """The bench has 60 operators; `_1` is not a case id until an operator selects it.
+
+    On the pinned root the official loader returns every operator's rows, so matching a
+    requested id by its numeric suffix alone "finds" one case per operator and reports
+    "60 official cases carry that number". The isolated root is not at fault: the
+    comparison has to be the one task the card names, resolved the way the adapter
+    resolves it.
+    """
+    root = tmp_path / "cann"
+    _bench_with_two_operators(root)
+    package = root / "src/kernel_eval/benches"
+    package.mkdir(parents=True)
+    (root / "src/kernel_eval/__init__.py").write_text("")
+    (package / "__init__.py").write_text("")
+    (package / "cann_loader.py").write_text(STUB_CANN_LOADER)
+    monkeypatch.setenv("CANN_BENCH_DIR", str(root))
+    path_before = list(sys.path)
+    try:
+        script = _validate_script()
+        sys.path.insert(0, str(root / "src"))
+        from kernel_eval.benches.cann_loader import CannCaseLoader
+        # the trap: the official loader really does return both operators' rows
+        assert len(CannCaseLoader(tasks_root=str(root / "tasks")).scan_all()) == 40
+        assert script.check_cases(repo_root() / "tasks/gqa-pypto") == 0
+    finally:
+        sys.path[:] = path_before
+        for name in [m for m in sys.modules if m.split(".")[0] == "kernel_eval"]:
+            del sys.modules[name]
+    out = capsys.readouterr().out
+    assert "official cases: 20; isolated root: 5 (tasks/level4/gqa)" in out
+    assert "level4/gqa_1: shapes/dtypes/attrs/baselines match" in out
+    assert "mla" not in out and "carry that number" not in out
+    assert "PASS:" in out

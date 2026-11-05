@@ -58,14 +58,19 @@ def check_cases(task: Path) -> int:
         return 2
     config = _task_config(task)
     selection = _adapter().case_selection(config, "scout")
+    # The pinned bench holds every operator and case numbers repeat across them
+    # (gqa_1 and mla_1 are both "_1"), so the official side has to be the one task
+    # this card names -- resolved by the same helper the adapter narrows with, not
+    # by guessing from the directory name.
+    _, _, rel_path = _adapter()._official_task_paths(cann_dir, config)
     workdir = Path(tempfile.mkdtemp(prefix="fk-scout-validate-"))
     try:
         scout_op, root = _adapter().scoped_task_dir(cann_dir, config, selection.names,
                                                     workdir)
         official = {c.case_id: c for c in CannCaseLoader(
-            tasks_root=str(cann_dir / "tasks")).scan_all()}
+            tasks_root=str(cann_dir / "tasks")).scan_all() if c.rel_path == rel_path}
         scoped = {c.case_id: c for c in CannCaseLoader(
-            tasks_root=str(root / "tasks")).scan_all()}
+            tasks_root=str(root / "tasks")).scan_all() if c.rel_path == rel_path}
         wanted = list(selection.names)
         print(f"official cases: {len(official)}; isolated root: {len(scoped)} "
               f"({scout_op.relative_to(root).as_posix()})")
