@@ -17,6 +17,23 @@ TIMING_BASES = {
     "cann_kernel_details": "kernel_details",
 }
 DEFAULT_TIMING_BASIS = "cann_trace_view"
+
+
+def configured_backend(config: dict) -> str:
+    """Resolve a card's backend, including an omitted or ``auto`` value."""
+    configured = str(config.get("profiler_backend") or "auto").strip().lower()
+    return PYPTO_DEFAULT_BACKEND if configured == "auto" else configured
+
+
+def configured_timing_basis(config: dict) -> str:
+    """Resolve the window the card will read when its optional basis is omitted."""
+    basis = str(config.get("timing_basis") or "").strip().lower()
+    if basis:
+        return basis
+    strategy = str(config.get("perf_metric_strategy") or "").strip().lower()
+    return "cann_kernel_details" if strategy == "kernel_details" else DEFAULT_TIMING_BASIS
+
+
 CHANNELS = {
     "ncu": {"ncu-direct", "ncu-derived", "sass-derived"},
     "msprof": {"msprof-direct", "msprof-derived", "cann-trace-view"},
@@ -44,8 +61,8 @@ def backend_for(language: str, configured: str = "auto", ncu_available: bool = T
 def timing_basis_problems(config: dict) -> list[str]:
     """Why one card's declared timing window cannot be read from its report."""
     problems = []
-    basis = str(config.get("timing_basis") or DEFAULT_TIMING_BASIS)
-    strategy = str(config.get("perf_metric_strategy") or TIMING_BASES[DEFAULT_TIMING_BASIS])
+    basis = configured_timing_basis(config)
+    strategy = str(config.get("perf_metric_strategy") or TIMING_BASES[DEFAULT_TIMING_BASIS]).strip().lower()
     if basis not in TIMING_BASES:
         problems.append(f"timing_basis must be one of {sorted(TIMING_BASES)}, got {basis!r}")
     elif TIMING_BASES[basis] != strategy:
@@ -53,7 +70,7 @@ def timing_basis_problems(config: dict) -> list[str]:
             f"timing_basis {basis!r} is read from a {TIMING_BASES[basis]!r} report, but "
             f"perf_metric_strategy is {strategy!r}: the field the adapter reads would be "
             f"absent from the official report")
-    backend = str(config.get("profiler_backend") or PYPTO_DEFAULT_BACKEND)
+    backend = configured_backend(config)
     if backend not in ASCEND_BACKENDS:
         problems.append(f"profiler_backend must be one of {list(ASCEND_BACKENDS)}, got {backend!r}")
     return problems
@@ -61,7 +78,7 @@ def timing_basis_problems(config: dict) -> list[str]:
 
 def card_backend_problem(config: dict, loop_backend: str) -> str | None:
     """Why the control-side and execution-side evidence backends disagree."""
-    card = str(config.get("profiler_backend") or PYPTO_DEFAULT_BACKEND)
+    card = configured_backend(config)
     if card not in ASCEND_BACKENDS:
         return (f"eval/cann_task.json profiler_backend is {card!r}; expected one of "
                 f"{list(ASCEND_BACKENDS)}")

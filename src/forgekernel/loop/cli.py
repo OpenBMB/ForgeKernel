@@ -2082,7 +2082,8 @@ def _pypto_card_problem(op_dir: Path, cfg: dict, language: str) -> str | None:
     a reference measured in a different window than the candidate produces a ratio
     between two incomparable numbers, which is the one error no later gate catches.
     """
-    from forgekernel.profiling import card_backend_problem, timing_basis_problems
+    from forgekernel.profiling import (card_backend_problem, configured_timing_basis,
+                                       timing_basis_problems)
     loop_backend = backend_for(language, cfg.get("loop", {}).get("profiler_backend", "auto"),
                                ncu_available(cfg))
     trees = {"card": Path(op_dir) / "eval/cann_task.json"}
@@ -2103,7 +2104,7 @@ def _pypto_card_problem(op_dir: Path, cfg: dict, language: str) -> str | None:
             return f"{label} tree {path}: " + "; ".join(problems)
         if why := card_backend_problem(config, loop_backend):
             return f"{label} tree {path}: {why}"
-        bases[label] = config.get("timing_basis") or "cann_trace_view"
+        bases[label] = configured_timing_basis(config)
     if len(set(bases.values())) > 1:
         shown = ", ".join(f"{k}={v}" for k, v in sorted(bases.items()))
         return (f"candidate and reference are timed in different windows ({shown}): their "

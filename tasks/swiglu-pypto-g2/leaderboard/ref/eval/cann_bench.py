@@ -50,7 +50,7 @@ def report_to_eval(report: dict, *, config: dict | None = None) -> dict:
     if len(operators) != 1:
         return {"correctness": {"pass": False,
                                 "error": f"expected one operator report, got {len(operators)}"},
-                "performance": {}, "measurement": measurement}
+                "performance": {}}
     op = operators[0]
     cases = op.get("cases") or []
     official = {
@@ -127,7 +127,7 @@ def report_to_eval(report: dict, *, config: dict | None = None) -> dict:
                      "cases": [{"case_id": c.get("case_id"),
                                 "trace_view": (c.get("op_times") or {}).get("trace_view")}
                                for c in cases]},
-        "measurement": measurement,
+        **({"measurement": measurement} if accuracy_ok else {}),
     }
 
 
