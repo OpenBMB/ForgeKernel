@@ -333,3 +333,57 @@ def test_evaluate_resolves_omitted_backend_and_keeps_report_metadata(
     assert result['cann_bench']['cost']['evaluator_seconds'] == 12.5
     assert result['cann_bench']['cost']['cases_requested'] == 'all'
     assert result['cann_bench']['case_scope'] is None
+
+
+class _Probe:
+    def __init__(self, stdout, returncode=0):
+        self.stdout, self.stderr, self.returncode = stdout, '', returncode
+
+
+def _experiment_workspace(tmp_path):
+    workspace = tmp_path / 'ws'
+    workspace.mkdir()
+    (workspace / 'kernel.py').write_text('def run():\n    return 1\n')
+    return workspace
+
+
+@pytest.mark.parametrize('cases, printed, certifies', [
+    ('scout', 'PROBE SCOUT', False),
+    ('', 'PROBE PASS', True),
+])
+def test_a_narrowed_experiment_prices_but_never_certifies(tmp_path, monkeypatch, capsys,
+                                                          cases, printed, certifies):
+    """The teacher/recon path: `"cases"` reaches the adapter, the verdict stays honest.
+
+    A five-case gain is a reason to pay for the full gate, not a certified lever --
+    so a scoped experiment never prints a PROBE PASS line, and its JSON says so.
+    """
+    from forgekernel.skills import ascend_probe
+    workspace = _experiment_workspace(tmp_path)
+    seen = []
+
+    def fake_run(cmd, **kw):
+        seen.append(kw['env'])
+        tree = Path(kw['cwd']).name
+        ms = 10.0 if tree.startswith('base') else 9.0
+        result = {'correctness': {'pass': True},
+                  'performance': {'device_median_ms': ms, 'bwd_median_ms': ms,
+                                  'workloads': [{'name': 'level4/gqa_1'}]},
+                  'cann_bench': {'cases': []}}
+        return _Probe('=== JSON ===\n' + json.dumps(result) + '\n')
+
+    monkeypatch.setattr(ascend_probe.subprocess, 'run', fake_run)
+    monkeypatch.setenv('FK_CANN_CASES', 'gqa_8')   # an ambient value must not leak
+    result = ascend_probe.run_experiment(workspace, {
+        'hypothesis': 'a narrower KV tile helps', 'repeat': 3, 'cases': cases,
+        'edits': [{'old': 'return 1', 'new': 'return 2'}]})
+    out = capsys.readouterr().out
+    assert printed in out
+    assert result['certifies'] is certifies
+    assert result['cases'] == (cases or 'all')
+    for env in seen:
+        if cases:
+            assert env['FK_CANN_CASES'] == cases
+        else:
+            assert 'FK_CANN_CASES' not in env
+        assert int(env['FK_CANN_EVAL_BUDGET']) > 0

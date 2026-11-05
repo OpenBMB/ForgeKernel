@@ -91,16 +91,17 @@ adapter 自己如果被外层 TERM,也会走同一条路,而不是按默认动�
 `gqa_16` 是测试帮我补上的——第一版 scout 集漏了 mtp regime,而一个漏掉某个 regime 的 scout 集
 比付全量代价更糟:它会用不适用的 shape 去给一个架构决策定价。
 
-怎么做到的要紧,因为它决定了这个机制是否真的可用。**上有的 CANN-Bench 没有 case 集合参数**:
+怎么做到的要紧,因为它决定了这个机制是否真的可用。**上游的 CANN-Bench 没有 case 集合参数**:
 `kernel_eval.cli` 只有 `--case-id` 且 `type=int`,一次一个 case;`ForgeKernel` 原来的
 `case_filter_flag` 字段实际上无 flag 可填。所以 subset 改成用它**本来就支持**的那条路径表达:
-把官方 task 目录复制成一个隔离的 task root——`<tmp>/tasks/level4/gqa/cases.yaml` 只留选中的
-case,`proto.yaml`、`golden.py`、`cases.csv` 全部 symlink 回官方文件,再把官方
-`tasks/metadata`(和 `suite_manifest.json`)link 到 `<tmp>/tasks/` 下。
-`resolve_task_dir` 找到 `<tmp>/tasks` 作为 bench root,`CannCaseLoader` 只扫到选中的 case,
+在 `CANN_BENCH_DIR` 下建一个隔离的 task root(`.forgekernel-scout/`),把官方 task 目录镜像进去
+——`proto.yaml`、`golden.py`、`cases.csv`、`desc.md` 全部 symlink 回官方文件,只重写
+`<root>/tasks/level4/gqa/cases.yaml`,让它里面只剩选中的 case,再把官方
+`tasks/metadata`(和 `suite_manifest.json`)link 到 `<root>/tasks/` 下。
+`resolve_task_dir` 把 `<root>/tasks` 当 bench root,`CannCaseLoader` 只扫到选中的 case,
 而 case id(`level4/gqa_5`)、input_shape、dtype、`baseline_perf_us`/`t_hw_us` 与全量 loader
 完全一致。一个 job、一次构建、5 次 case 编译,不是 5 次 job。
-全量 job 仍然用官方 `task_dir`,一个字节都不动。
+全量 job 仍然用官方 `task_dir`,一个字节都不动,也不建任何临时目录。
 
 两条约束让 scout 不会变成一种廉价的虚报方式。
 
@@ -164,8 +165,9 @@ scout 改的是 job 的 case 集,没改 PyPTO 的 JIT 键:一次 scout job 之�
 
 `baseline_perf_us`/`t_hw_us` 的等价性只在 CPU 上用官方 loader 验证过(隔离 root 与全量 root
 逐字段相等);昇腾机上还要再核对一次真实 `metadata/<hardware>.json`。这是唯一的机制性风险:
-如果某台机器的 baseline 不在 `tasks/metadata` 下,隔离 root 会拿不到 baseline,scout 的
-`speedup` 会退化成缺失——adapter 不会伪造它。
+adapter 从官方 bench root 逐级向上找 `metadata/`(和 `suite_manifest.json`)并 link 过去;
+如果某台机器的 baseline 放在 `CANN_BENCH_DIR` 之外,隔离 root 会拿不到 baseline,scout 的
+`speedup` 会退化成缺失——adapter 不会伪造它,而是让 `validate_pypto_scout.py cases` 报 DIFFERS。
 
 cost 只有墙钟。编译和设备的占比要靠一个认证过的编译钩子,现在没有。
 
