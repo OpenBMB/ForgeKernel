@@ -6,15 +6,6 @@ The official CANN-Bench report is the only correctness and timing source. PyPTO 
 not host wall time. The aggregate exposed to ForgeKernel is the geometric mean over all
 public cases, with no reference fields (a reference measured through its own tree is not
 an in-job reference).
-
-Three outcomes, never folded together. A candidate the official judge rejects is a
-**correctness** failure and the student's to fix. An evaluator that exited non-zero
-or produced no report is a **job** failure. A report that does not carry the window
-this card declared is a **measurement** failure: the kernel may be perfectly
-correct -- the first GQA M0 gate was 20/20 and still unusable, because the card
-collected ``kernel_details`` while the adapter read ``trace_view``. Reporting that
-third case as a correctness failure points the next iteration at the kernel
-instead of the configuration, which is the one direction no evidence can correct.
 """
 from __future__ import annotations
 
@@ -30,7 +21,7 @@ import tempfile
 
 # Also importable by CPU-only tests without installing the card as a package.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from ascend_profiler import collect, emit_artifact
+from ascend_profiler import collect, emit_artifact, resolve_backend, resolve_timing_basis
 
 BASIS = "cann_trace_view"
 
@@ -52,11 +43,14 @@ SCORE_FIELDS = ("score", "compilation_score", "compile_runtime_score", "function
 def report_to_eval(report: dict, *, config: dict | None = None) -> dict:
     config = config or {}
     """Convert one CANN-Bench single-pass report into ForgeKernel's eval contract."""
+    backend = resolve_backend(config)
+    basis = resolve_timing_basis(config)
+    measurement = {"backend": backend, "timing_basis": basis, "status": "not_measured"}
     operators = report.get("operators") or []
     if len(operators) != 1:
         return {"correctness": {"pass": False,
                                 "error": f"expected one operator report, got {len(operators)}"},
-                "performance": {}}
+                "performance": {}, "measurement": measurement}
     op = operators[0]
     cases = op.get("cases") or []
     official = {
@@ -79,13 +73,9 @@ def report_to_eval(report: dict, *, config: dict | None = None) -> dict:
             failures.append(f"{case.get('case_id', '?')}: {detail}")
     total = int(op.get("total_cases") or len(cases))
     passed = int(op.get("passed_cases") or 0)
-    correct = bool(cases) and passed == total == len(cases) and not failures
-    basis = str(config.get("timing_basis") or BASIS)
-    backend = str(config.get("profiler_backend") or "msprof")
-    official["timing_basis"] = basis
+    accuracy_ok = bool(cases) and passed == total == len(cases) and not failures
     performance: dict = {}
-    measurement: dict = {}
-    if correct:
+    if accuracy_ok:
         try:
             names, milliseconds = [], []
             for case in cases:
@@ -114,33 +104,29 @@ def report_to_eval(report: dict, *, config: dict | None = None) -> dict:
                 "device_window_basis": basis,
                 "workloads": workloads,
             }
-        except MeasurementUnavailable as exc:
-            # The official judge already passed every case. The kernel is not at
-            # fault and must not be told it is: this is the card's declared window
-            # missing from the report the card asked for.
-            measurement = {"status": "unavailable", "timing_basis": basis,
-                           "perf_metric_strategy": config.get("perf_metric_strategy"),
-                           "reason": str(exc)}
-            performance = {}
+            measurement.update(status="available", n_workloads=len(workloads))
+        except (MeasurementUnavailable, KeyError, TypeError, ValueError) as exc:
+            # The cases passed the official checker; what is missing is the timing
+            # window this card declared. That is a measurement/configuration outcome,
+            # not a wrong kernel, so it must not enter the correctness/REVERT path.
+            measurement.update(status="unavailable", reason=str(exc),
+                               perf_metric_strategy=config.get("perf_metric_strategy"))
     return {
         "correctness": {
-            "pass": correct,
+            "pass": accuracy_ok,
             "passed_cases": passed,
             "total_cases": total,
             "error": "; ".join(failures) if failures else "",
         },
         "performance": performance,
-        **({"measurement": measurement} if measurement else {}),
         "cann_bench": official,
-        # ``backend`` is the tool this job ran, never the window the gate is timed
-        # in: a card collects msprof and still times on trace_view. The window is
-        # ``performance.device_window_basis`` / ``cann_bench.timing_basis``.
         "profiler": {"backend": backend, "timing_basis": basis,
                      "status": "available" if performance else "unavailable",
-                     "source": f"CANN-Bench {basis}",
+                     "source": f"CANN-Bench official report ({basis})",
                      "cases": [{"case_id": c.get("case_id"),
                                 "trace_view": (c.get("op_times") or {}).get("trace_view")}
                                for c in cases]},
+        "measurement": measurement,
     }
 
 
@@ -149,7 +135,7 @@ class MeasurementUnavailable(Exception):
 
 
 def _case_window(case: dict, basis: str) -> tuple[object, str]:
-    """One case's declared timing window, or MeasurementUnavailable with the reason."""
+    """One case's declared timing window, or a measurement diagnostic."""
     if basis == BASIS:
         trace = (case.get("op_times") or {}).get("trace_view") or {}
         if trace.get("aicore_e2e") is None:
@@ -172,6 +158,9 @@ def evaluator_failure(result: dict, rc: int) -> None:
         "error": (detail + "; " if detail else "")
                  + f"CANN-Bench evaluator exited {rc}; partial report is not a gate"})
     result["performance"] = {}
+    # A nonzero evaluator exit is a failed run, not a clean measurement-unavailable
+    # reading: leave the ordinary correctness-failure path in charge.
+    result.pop("measurement", None)
 
 
 def _latest_report(root: Path) -> Path | None:
@@ -235,9 +224,11 @@ def _evaluate(workspace: Path, config: dict) -> dict:
     report_root.mkdir(parents=True, exist_ok=True)
     # No stale report can turn a crashed evaluator into a passing measurement.
     reports = Path(tempfile.mkdtemp(prefix="eval-", dir=report_root))
-    backend = config.get("profiler_backend", "cann_trace_view")
-    if backend not in ("cann_trace_view", "msprof"):
-        raise ValueError(f"unsupported Ascend profiler backend: {backend}")
+    # Resolve the routing once: the config the report converter sees, the backend
+    # collection labels, and the preflight check are the same values.
+    config = {**config, "profiler_backend": resolve_backend(config),
+              "timing_basis": resolve_timing_basis(config)}
+    backend = config["profiler_backend"]
     source = (workspace / config.get("source_dir", ".")).resolve()
     if config.get("clean_build", True):
         # kernel_eval reuses an existing wheel. That is wrong for an optimization loop:
@@ -280,7 +271,9 @@ def _evaluate(workspace: Path, config: dict) -> dict:
         emit_artifact("cann/evaluator.log", (reports / "evaluator.log").read_bytes()[-1048576:])
         return {"correctness": {"pass": False,
                                 "error": f"CANN-Bench exited {rc} without a JSON report: {tail}"},
-                "performance": {}, "profiler": {"backend": backend, "status": "unavailable"}}
+                "performance": {},
+                "profiler": {"backend": backend, "timing_basis": config["timing_basis"],
+                             "status": "unavailable"}}
     raw = report_path.read_bytes()
     report = json.loads(raw)
     result = report_to_eval(report, config=config)
@@ -290,7 +283,13 @@ def _evaluate(workspace: Path, config: dict) -> dict:
     if rc:
         evaluator_failure(result, rc)
     if backend == "msprof":
-        result["profiler"], prof_artifacts = collect(reports, backend)
+        # Collection adds the exported tables / session records but must not replace
+        # the report's own metadata: the timing basis (and the trace_view cases) are
+        # what make the reading interpretable.
+        evidence, prof_artifacts = collect(reports, backend)
+        result["profiler"] = {**(result.get("profiler") or {}), **evidence,
+                              "backend": backend,
+                              "timing_basis": config["timing_basis"]}
         artifacts.extend(prof_artifacts)
     result["cann_bench"].update({"report": str(report_path), "evaluator_rc": rc,
                                   "commit": actual_ref, "artifacts": artifacts})
@@ -307,7 +306,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.preflight:
             config = json.loads((Path(args.workspace) / "eval/cann_task.json").read_text())
-            if config.get("profiler_backend") == "msprof" and not shutil.which("msprof"):
+            backend = resolve_backend(config)
+            basis = resolve_timing_basis(config)
+            if backend == "msprof" and not shutil.which("msprof"):
                 raise RuntimeError("msprof executable unavailable")
             import pypto
             import torch
@@ -317,7 +318,7 @@ def main(argv: list[str] | None = None) -> int:
                 raise RuntimeError("NPU smoke failed")
             print(f"ASCEND-PREFLIGHT-OK pypto={pypto.__version__} "
                   f"torch_npu={torch_npu.__version__} "
-                  f"backend={config.get('profiler_backend', BASIS)}")
+                  f"backend={backend} timing_basis={basis}")
             return 0
         result = evaluate(Path(args.workspace).resolve())
     except Exception as exc:  # harness configuration failure: visible in the job log

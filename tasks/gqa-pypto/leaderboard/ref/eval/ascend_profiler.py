@@ -21,6 +21,46 @@ import zlib
 ARTIFACT_MARKER = "FORGE-ARTIFACT: "
 MAX_FILE_BYTES = 16 * 1024 * 1024
 
+# The card is the execution-side source of truth for a PyPTO run's profiler routing.
+# Keep this equal to forgekernel.profiling.PYPTO_DEFAULT_BACKEND (a test holds the two
+# together): the control plane must validate the backend the job will actually use.
+DEFAULT_PROFILER_BACKEND = "msprof"
+PROFILER_BACKENDS = ("msprof", "cann_trace_view")
+TIMING_BASES = ("cann_trace_view", "cann_kernel_details")
+
+
+def resolve_backend(config: dict | None = None) -> str:
+    """The one PyPTO profiler-backend resolution used by validation and execution.
+
+    Omitted / "auto" takes the PyPTO default; NCU and NCU-derived channels are not
+    valid for an Ascend card, so they are rejected here as well as in the control
+    plane (forgekernel.profiling.backend_for).
+    """
+    configured = str((config or {}).get("profiler_backend") or "auto").strip().lower()
+    if configured == "auto":
+        configured = DEFAULT_PROFILER_BACKEND
+    if configured not in PROFILER_BACKENDS:
+        raise ValueError(f"unsupported Ascend profiler backend: {configured}")
+    return configured
+
+
+def resolve_timing_basis(config: dict | None = None) -> str:
+    """The timing currency report conversion and execution both read.
+
+    An explicit ``timing_basis`` wins; otherwise the CANN-Bench metric strategy decides
+    what the official report actually carries (kernel_details -> vendor kernel-only time,
+    anything else -> trace_view AI-Core E2E). Resolving it once prevents a config that
+    collects one window from being labelled the other.
+    """
+    config = config or {}
+    basis = str(config.get("timing_basis") or "").strip().lower()
+    if not basis:
+        strategy = str(config.get("perf_metric_strategy") or "").strip().lower()
+        basis = "cann_kernel_details" if strategy == "kernel_details" else "cann_trace_view"
+    if basis not in TIMING_BASES:
+        raise ValueError(f"unsupported CANN-Bench timing basis: {basis}")
+    return basis
+
 
 def emit_artifact(name: str, data: bytes) -> dict:
     if len(data) > MAX_FILE_BYTES:
