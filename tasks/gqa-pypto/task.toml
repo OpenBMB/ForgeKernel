@@ -1,0 +1,13 @@
+[task]
+language = "pypto"
+arch = "ascend950pr"
+[leaderboard]
+suite = "cann-bench"
+card = "leaderboard/card"
+ref = "leaderboard/ref"
+[target]
+ratio = 1.05
+timing = "device"
+[budget]
+hours = 16
+max_meta = 4

@@ -112,6 +112,13 @@ class IterationRecord:
     # e_cand / e_ref and the stress profiles' statuses. {} = contract off, no eval, or
     # recorded before the field existed.
     precision: dict = field(default_factory=dict)
+    cann_bench: dict = field(default_factory=dict)  # official scores/anchors, never ref_*
+    # The card's structured measurement outcome for this row (see EvalResult in
+    # loop/parse.py). {"status": "unavailable", ...} marks a configuration defect
+    # (e.g. the declared timing window was not reported) that ended the segment
+    # without a kernel verdict: the row is NEUTRAL, the tree is not reset, and the
+    # meta agent reads the preserved backend / timing_basis / reason here.
+    measurement: dict = field(default_factory=dict)
 
     def __post_init__(self):
         if self.verdict not in ("KEEP", "REVERT", "NEUTRAL"):
@@ -283,6 +290,10 @@ def build_digest(records: list[IterationRecord], target: dict,
                         for r in records if r.verdict == "REVERT"],
         "profiler": [{"iter": r.iter, "verdict": r.verdict, **r.profiler}
                      for r in records if r.profiler],
+        "measurement": [{"iter": r.iter, "verdict": r.verdict, **r.measurement}
+                        for r in records if r.measurement],
+        "cann_bench": [{"iter": r.iter, "verdict": r.verdict, **r.cann_bench}
+                       for r in records if r.cann_bench],
         # red flags derived from the trajectory shape itself; empty list when clean
         "flags": [f for f in (constant_output_flag(records),) if f],
     }

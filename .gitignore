@@ -12,4 +12,5 @@ __pycache__/
 /operators/
 # This machine: GPU, ssh host, credentials. Never committed.
 local.env
+.env
 uv.lock

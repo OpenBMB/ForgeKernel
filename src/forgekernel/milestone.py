@@ -247,7 +247,8 @@ def _verify_line(sec: str, term: str) -> bool:
 
 
 def validate_milestone(text: str, *, authoring: bool = False,
-                       baseline: str | None = None) -> list[str]:
+                       baseline: str | None = None,
+                       profiler_backend: str | None = None) -> list[str]:
     """Return a list of format violations (empty list == conforms to the schema).
 
     ``authoring=True`` is the strict mode for freshly distilled milestones: the
@@ -270,6 +271,10 @@ def validate_milestone(text: str, *, authoring: bool = False,
     gate read a pre-rule milestone as "not distilled yet".
     """
     v: list[str] = []
+    ascend = profiler_backend in ("msprof", "cann_trace_view")
+    if profiler_backend is not None:
+        from forgekernel.profiling import channel_violations
+        v.extend(channel_violations(text, profiler_backend))
     if not text.lstrip().startswith("# "):
         v.append("missing title header (# <op> milestone)")
 
@@ -336,7 +341,7 @@ def validate_milestone(text: str, *, authoring: bool = False,
     # handoff adjudicated as an all-hands rendezvous once shipped with the full
     # triple symptom (tensor low + dram low + stall_barrier high) and passed M0
     # on end-to-end numbers alone — the sync signature line is what fires there.
-    if sec3:
+    if sec3 and not ascend:
         # Out-of-vocabulary values are their own violation, for every kind: the
         # machine vocabulary is exact words, and a near-miss ("pipeline",
         # "mbarrier_pipeline") must be named as such — not misreported as a
@@ -437,7 +442,8 @@ def validate_milestone(text: str, *, authoring: bool = False,
         if _PERF_NUMBER.search(line) and not _EVIDENCE_MARKER.search(line):
             v.append(f"§3 performance number without [MEASURED]/[ESTIMATE]: {line.strip()[:60]}")
 
-    v.extend(_operand_source_violations(sec3))
+    if not ascend:
+        v.extend(_operand_source_violations(sec3))
 
     v.extend(_gate_hygiene_violations(text, authoring=authoring, baseline=baseline))
 
@@ -564,7 +570,8 @@ _ALLOC_PIN = re.compile(r"USETMAXREG|setmaxnreg|DEALLOC\s+0x|TRY_ALLOC\s+0x|"
                         r"regs_per_thread\s*={1,2}\s*\d", re.I)
 _PRICED_TAG = re.compile(r"\[PRICED:\s*[^\]]*\S[^\]]*\]")
 _OPERAND_SOURCE_LINE = re.compile(r"mma_a_reg|mma_a_desc")
-_GATE_CLASSES = ("ncu-direct", "ncu-derived", "correctness", "sass-derived")
+_GATE_CLASSES = ("ncu-direct", "ncu-derived", "correctness", "sass-derived",
+                 "msprof-direct", "msprof-derived", "cann-trace-view", "probe")
 _VERIFY_CLASS = re.compile(r"\[VERIFY:\s*([A-Za-z-]+)\s*\]")
 
 

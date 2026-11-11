@@ -184,6 +184,15 @@ class EvalResult:
     # ``correctness``; the driver applies the card's [loop] precision_contract
     # (loop/precision_gate.py). None = the bench reported none.
     precision: dict | None = None
+    # Official board evidence is distinct from the campaign's single reference.
+    cann_bench: dict = field(default_factory=dict)
+    profiler: dict = field(default_factory=dict)
+    # The card's structured measurement outcome ("available" / "unavailable" /
+    # "not_measured") and, when unavailable, which declared timing basis the
+    # official report failed to supply. A configuration defect, not a wrong kernel:
+    # the driver stops structurally instead of resetting the tree and billing a
+    # correctness REVERT.
+    measurement: dict = field(default_factory=dict)
 
 
 _WORKLOAD_KEYS = ("device_median_ms", "bwd_median_ms", "ref_device_ms", "vs_ref_device", "vs_ref")
@@ -200,6 +209,8 @@ def _workloads(perf: dict) -> list:
             v = w.get(key)
             if isinstance(v, (int, float)) and not isinstance(v, bool):
                 item[key] = float(v)
+        if isinstance(w.get("cann_bench"), dict):
+            item["cann_bench"] = w["cann_bench"]
         out.append(item)
     return out
 
@@ -272,6 +283,11 @@ def parse_eval(text: str) -> EvalResult:
                               error=f"the job timed nothing: the board's clock lock did not "
                                     f"hold on its node (a node fault, not the kernel): "
                                     f"{why[:300]}")
+        end = job_abend(text)
+        if end.kind != JOB_END_WHOLE:
+            return EvalResult(correctness=False,
+                              error=f"no eval JSON block; the official evaluation did not complete: {end.reason}; "
+                                    "no correctness or performance claim is available")
         return EvalResult(correctness=False,
                           error="no eval JSON block in the job log (job died before the verdict?)")
     if scope := obj.get("workload_scope"):
@@ -314,6 +330,9 @@ def parse_eval(text: str) -> EvalResult:
 
     return EvalResult(
         prep=prep,
+        cann_bench=obj.get("cann_bench") or {},
+        profiler=obj.get("profiler") or {},
+        measurement=obj.get("measurement") if isinstance(obj.get("measurement"), dict) else {},
         precision=obj.get("precision") if isinstance(obj.get("precision"), dict) else None,
         n_workloads=n_wl,
         workloads=workloads,

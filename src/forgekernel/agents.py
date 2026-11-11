@@ -23,6 +23,9 @@ def agent_command(spec, role: str, env: dict | None = None) -> str:
     if spec.backend != "claude":
         raise ValueError(f"backend {spec.backend!r} is not supported (claude only)")
     grant = provider_mod.grant(spec.backend, spec.provider, env)
+    # Every agent setting comes from the task's [agent] and [agent.<role>]
+    # tables. There is deliberately no hidden TEACHER_* environment override:
+    # changing a model name must also require changing its provider explicitly.
     argv = ["bash", str(repo_root() / AGENT_SCRIPT), spec.model, spec.effort or "",
             str(spec.timeout_s)]
     prefix = ["env", *(f"{k}={v}" for k, v in grant.items())] if grant else []

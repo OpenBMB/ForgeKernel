@@ -89,9 +89,10 @@ Show me the plan it prints.
 **Requirements.** The machine you run `forge` on: Linux or macOS, Python ≥ 3.11, git, and the
 [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) CLI (logged in, or an
 `ANTHROPIC_API_KEY`); tmux if a task has no reference. The GPU machine (the same one, or an ssh
-host): an NVIDIA Hopper (`sm90`) or Blackwell (`sm100`) GPU, `python3` with a CUDA build of
-PyTorch and, for CuTe DSL tasks, `nvidia-cutlass-dsl`; Nsight Compute (`ncu`) is recommended,
-and without it a run proceeds on timings alone.
+host): an NVIDIA Hopper (`sm90`) or Blackwell (`sm100`) GPU with a CUDA build of PyTorch and,
+for CuTe DSL tasks, `nvidia-cutlass-dsl`; Nsight Compute (`ncu`) is recommended. PyPTO tasks
+instead target an Ascend host with CANN, PyPTO and `torch_npu`; the task's `arch` selects the
+variant (`ascend910b`, `ascend910c`, `ascend950pr`, `ascend950dt`) and CANN-Bench task root.
 
 **1. Install**
 
@@ -167,7 +168,7 @@ distillation policy. The paper's terms map onto the code as follows:
 | arch agent | the *teacher* (`[agent.teacher]` in `task.toml`) |
 | coding agent | the *student* (`[agent.student]`) |
 | campaign | a run, `.artifacts/<op>_<id>/` |
-| knowledge base | `hw_kb/cutedsl/` (CuTe DSL), `hw_kb/cuda/` (CUDA C++) |
+| knowledge base | `hw_kb/cutedsl/` (CuTe DSL), `hw_kb/cuda/` (CUDA C++), `hw_kb/pypto/` (Ascend) |
 
 > Design notes → [docs/design/milestone-distillation.md](docs/design/milestone-distillation.md),
 > milestone format → [docs/milestones-template.md](docs/milestones-template.md)
@@ -214,8 +215,12 @@ committed and rerun elsewhere. The chain stops only when the hardware gives no m
 whose gain is within the noise floor (the spread of that generation's same-job confirmation ratios,
 at least 1.5%), or at one that ends without a confirmed best kernel. There is no generation cap
 unless you set `--max-gen`. The
-promoted kernel carries its source, so every generation after the first runs in `source` mode: the
-teacher reads the previous best, the student never does. (CuTe DSL tasks only.)
+promoted kernel carries its source. CuTe DSL generations run in `source` mode: the teacher
+reads the previous best and the student never does. PyPTO / CANN-Bench generations instead
+preserve a sealed **blackbox** reference: the teacher profiles it, the student starts from a
+signature-only stub, and no reference body crosses the generation boundary. Promotion requires
+at least three student and three fresh-reference jobs, and the gain must clear the conservative
+two-sided noise floor; otherwise the chain stops.
 
 ## Leaderboard Tasks
 
@@ -229,6 +234,14 @@ forge export .artifacts/rms_<id> --out solution.json
 
 The task freezes the board's problem: inputs, tolerance and stopwatch follow the board's own
 evaluation code. → [docs/leaderboards.md](docs/leaderboards.md)
+
+## PyPTO on Ascend
+
+`language = "pypto"` runs the same teacher/student loop against CANN-Bench. The backend keeps
+the official evaluator, msprof artifacts, sealed references and confirmation protocol, and
+selects the hardware knowledge base from the task's `arch`. See the
+[backend report](docs/pypto-backend-technical-report-zh.md) and the
+[optimization case studies](docs/pypto-optimization-case-studies-zh.md).
 
 ## Kernels
 
@@ -281,7 +294,7 @@ tasks/               <op>/: task.toml, description.md, shapes.json, reference/;
 skills/              the agents' tools, one SKILL.md + scripts each, mirrored into
                      the agent's .claude/skills/ before every turn
 meta/                teacher and student prompts (meta/cuda/: CUDA C++)
-hw_kb/               the hardware knowledge base (cutedsl/, cuda/), by GPU architecture
+hw_kb/               the hardware knowledge base (cutedsl/, cuda/, pypto/), by GPU architecture
 docs/                design notes, milestone template, leaderboards, KB
 scripts/             agent launcher, /goal driver, self-evolution
 tests/               pytest suite (CPU only)

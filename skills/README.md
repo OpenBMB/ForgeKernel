@@ -19,3 +19,4 @@ imports the same files as `forgekernel.skills.<module>` to read their verdict li
 | [lever-pricing](lever-pricing/SKILL.md) | measured prices of candidate levers by ablation |
 | [job-env-check](job-env-check/SKILL.md) | whether a GPU job's `python3` can run the tools at all |
 | [ncu-trace](ncu-trace/SKILL.md) | NCU metrics across iterations, for the teacher |
+| [ascend-profile](ascend-profile/SKILL.md) | auditable trace_view / msprof evidence and NPU ablation experiments |

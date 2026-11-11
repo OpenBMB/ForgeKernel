@@ -1,0 +1,9 @@
+schema_version = 1
+[reference]
+window = "Huawei fused-attention kernel_details sum, one call per sample"
+inputs = ["query", "key", "value"]
+outputs = ["y"]
+[student]
+window = "candidate, all kernels in kernel_details; trace_view AI-Core E2E for PyPTO"
+inputs = ["query", "key", "value"]
+outputs = ["y"]

@@ -1,0 +1,17 @@
+# PyPTO on Ascend 950PR, judged by CANN-Bench official-tasks 2.0.0.
+[task]
+language = "pypto"
+arch = "ascend950pr"
+
+[leaderboard]
+suite = "cann-bench"
+card = "leaderboard/card"
+ref = "leaderboard/ref"
+
+[target]
+ratio = 1.05
+timing = "device"
+
+[budget]
+hours = 8.0
+max_meta = 3
