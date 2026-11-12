@@ -280,8 +280,8 @@ the run directory, the delivery) is as for an ordinary task. Details are in
 - One table each for the teacher and the student, with structured fields: `backend`, `provider`,
   `model`, `effort`, `timeout_s`. The harness builds the command itself, so it can handle /goal
   sessions, session continuation, usage accounting and permission settings uniformly.
-- V1 supports only `backend = "claude"` (the Claude Code CLI); the field stays so that adding a backend
-  later does not change the format.
+- Supports `backend = "claude"` (Claude Code) and `backend = "codex"` (Codex CLI),
+  independently per role.
 - With `provider = "native"`, the CLI's own login state and environment decide where the tokens go;
   any other provider is an endpoint in `global_config/backends.toml`, whose key is read from the
   variable its `key_env` names.
@@ -289,6 +289,44 @@ the run directory, the delivery) is as for an ordinary task. Details are in
   under version control.
 - Without a `model`, `claude-opus-5-5` is used; the model actually used is written into the run's
   snapshot.
+
+### Codex CLI backend
+
+Log in to Codex CLI, then set the backend and model in `task.toml`:
+
+```toml
+[agent]
+backend = "codex"
+model = "YOUR_CODEX_MODEL"
+effort = "high"
+```
+
+Use a model available to your account. To change one role only, put these settings
+in `[agent.teacher]` or `[agent.student]`. The default provider uses CLI login;
+custom providers use `wire = "responses"`, `base_url` and `key_env` in
+`global_config/backends.toml`. `FK_CODEX_BIN` selects the executable.
+Existing launch, resume, export and self-evolution commands work as before.
+
+Tested with Codex 0.166.0-alpha.5.1. The CLI must support permission profiles,
+hooks and the three isolation flags: `--ignore-user-config`, `--ignore-rules`,
+`--strict-config`. Older or incompatible CLIs are rejected. See the official
+[CLI](https://learn.chatgpt.com/docs/non-interactive-mode) and
+[permissions](https://learn.chatgpt.com/docs/permissions) documentation.
+
+Students cannot read the reference or its keys, write outside their allowed
+workspace, or go online. Blackbox teachers also cannot read the reference;
+blocking a repository URL blocks its entire host and common GitHub raw/CDN hosts.
+Skills go in `.agents/skills/`. Plugins, Apps, MCP and subagents are disabled.
+Personal config is ignored; project config and hooks that could change these
+rules cause startup to fail. Authentication is still taken from CLI login.
+
+Without a reference, the teacher runs repeated Codex turns under the generator's
+student rules. The harness checks the candidate ledger and report, resumes the
+same session when more work is needed, and stops at the deadline. This needs no
+tmux. Ordinary turns still use their configured `timeout_s`.
+
+Run `python -m pytest -q tests/test_codex_*.py` for local checks. These use
+simulated GPU results; real kernel correctness and speed need a supported GPU.
 
 ---
 
@@ -461,9 +499,11 @@ Trade-offs made in implementation, and where the result departs from the text ab
 6. **Every shape × every input group**: each round's NCU window spreads its calls over every input
    group of every shape (the sampling cap grows accordingly); tools that read shape by shape, such as
    pricing, stall and the timeline, read `meta_workloads`, which now lists every shape.
-7. **Agent commands**: built in one place, `scripts/agent-claude.sh`; an ordinary turn is `claude -p`
+7. **Agent commands**: built by `agents.py`; with `scripts/agent-claude.sh`, an ordinary turn is `claude -p`
    under a wall-clock timeout, and when /goal is needed (`FK_AGENT_DRIVER=goal`) it hands over to
-   `scripts/claude-goal.sh`. A /goal session needs tmux.
+   `scripts/claude-goal.sh`. A Claude /goal session needs tmux. The Codex backend uses
+   `scripts/agent-codex.sh` and `codex exec`, with a checked continuation loop in
+   `scripts/codex-goal.py` for reference generation, without tmux.
 8. **Self-evolution**: `scripts/self_evolve.py`. Only `cutedsl` tasks for now (the next generation's
    reference is sealed as Python source).
 9. **Leaderboard tasks**: `forge init <op> --leaderboard …` generates the card (and the recon tree of a
